@@ -7,8 +7,8 @@
 |`index.html`   |The complete app (React + all code)      |
 |`sw.js`        |Service worker (offline support, caching)|
 |`manifest.json`|PWA metadata (name, icons, display mode) |
-|`icon-192.png` |App icon 192×192                         |
-|`icon-512.png` |App icon 512×512                         |
+|`icon192.png`  |App icon 192×192                         |
+|`icon512.png`  |App icon 512×512                         |
 
 All 5 files must be in the **same folder** on your web server.
 
