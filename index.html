@@ -487,8 +487,11 @@ async function fetchByISBN(isbn) {
 }
 function pLinks(book) {
   const q=encodeURIComponent(`${book.title} ${book.authors?.[0]||""}`);
-  const iq=encodeURIComponent(book.isbn13||book.isbn10||"")||q;
-  return { amazon:`https://www.amazon.com/s?k=${iq}&i=stripbooks`, bn:`https://www.barnesandnoble.com/s/${iq}`, hpb:`https://www.halfpricebooks.com/search/?q=${q}` };
+  return {
+    amazon:`https://www.amazon.com/s?k=${q}&i=stripbooks`,
+    bn:`https://www.barnesandnoble.com/b/books?q=${q}`,
+    hpb:`https://www.halfpricebooks.com/search/?query=${q}`
+  };
 }
 function extractSeries(book) {
   const m=book.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i);
@@ -1914,7 +1917,7 @@ const SAMPLE_BOOKS=[
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 function App({ user }) {
-  const [books,setBooks]       = useState(()=>load("books",null)||SAMPLE_BOOKS);
+  const [books,setBooks]       = useState(()=>load("books",null)||[]);
   const [activeTab,setActiveTab] = useState("library");
   const [showAdd,setShowAdd]   = useState(false);
   const [selected,setSelected] = useState(null);
@@ -1936,6 +1939,8 @@ function App({ user }) {
   const [showImport,setShowImport]     = useState(false);
   const [shelfFilter,setShelfFilter]   = useState("all");
   const [showBackup,setShowBackup]     = useState(false);
+  const [friends, setFriends] = useState(()=>load('friends',[]));
+  const [pendingRequests, setPendingRequests] = useState([]);
   const [savedViews,setSavedViews]     = useState(()=>load("savedViews",[]));
   const [activeView,setActiveView]     = useState(null);
   const [showSavedViews,setShowSavedViews] = useState(false);
@@ -1955,6 +1960,41 @@ function App({ user }) {
     save("books",books);
   },[books]);
   useEffect(()=>{ save("goal",readingGoal); },[readingGoal]);
+  const friendsMounted = useRef(false);
+  useEffect(()=>{
+    if(!friendsMounted.current){friendsMounted.current=true;return;}
+    save('friends', friends);
+  },[friends]);
+
+  useEffect(()=>{
+    if(!user) return;
+    const db = firebase.firestore();
+    // Listen for incoming friend requests
+    const unsub = db.collection('friendRequests')
+      .where('toUid','==',user.uid)
+      .where('status','==','pending')
+      .onSnapshot(snap=>{
+        setPendingRequests(snap.docs.map(d=>({id:d.id,...d.data()})));
+      }, e=>console.warn('friend requests listener:', e));
+    // Listen for accepted outbound requests, sync to our friends list
+    const unsubAcc = db.collection('friendRequests')
+      .where('fromUid','==',user.uid)
+      .where('status','==','accepted')
+      .onSnapshot(async snap=>{
+        if(snap.empty) return;
+        const newUids=snap.docs.map(d=>d.data().toUid);
+        const profs = await Promise.all(newUids.map(uid=>db.doc(`profiles/${uid}`).get().then(d=>d.exists?{uid,...d.data()}:null)));
+        setFriends(prev=>{
+          const existing=new Set(prev.map(f=>f.uid));
+          const toAdd=profs.filter(p=>p&&!existing.has(p.uid));
+          return toAdd.length?[...prev,...toAdd]:prev;
+        });
+        const batch=db.batch();
+        snap.docs.forEach(d=>batch.delete(d.ref));
+        await batch.commit().catch(()=>{});
+      }, e=>console.warn('accepted requests listener:', e));
+    return ()=>{unsub();unsubAcc();};
+  },[user]);
   useEffect(()=>{ save("shelves",customShelves); },[customShelves]);
   useEffect(()=>{
     save("theme", isDark ? "dark" : "light");
@@ -2202,6 +2242,7 @@ function App({ user }) {
       {activeTab==="stats"&&<StatsScreen books={books} goal={readingGoal}/>}
       {activeTab==="achievements"&&<AchievementsScreen books={books} goal={readingGoal} earned={earnedAchs}/>}
       {activeTab==="suggestions"&&<SuggestScreen books={books} onAddWishlist={addToWishlist}/>}
+      {activeTab==="friends"&&<FriendsScreen user={user} friends={friends} setFriends={setFriends} pendingRequests={pendingRequests} setPendingRequests={setPendingRequests}/>}
     </div>
 
     {/* Achievement toast (top of screen) */}
@@ -2216,12 +2257,13 @@ function App({ user }) {
     {/* Bottom nav */}
     <nav style={{position:"fixed",bottom:0,left:0,right:0,height:70,background:P.navBg,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderTop:`1px solid ${P.border}`,zIndex:200,boxShadow:"0 -1px 0 rgba(99,102,241,.2),0 -20px 40px rgba(0,0,0,.4)"}}>
       <div className="app-inner" style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"space-around",position:"relative"}}>
-        {[["library","📚","🗂","Library"],["stats","📊","📊","Stats"],["achievements","🏆","🏅","Awards"],["suggestions","✨","💡","Suggest"]].map(([tab,activeIcon,inactiveIcon,label])=>(
+        {[["library","📚","🗂","Library"],["stats","📊","📊","Stats"],["achievements","🏆","🏅","Awards"],["suggestions","✨","💡","Suggest"],["friends","👥","👤","Friends"]].map(([tab,activeIcon,inactiveIcon,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
             style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 0",color:activeTab===tab?P.accent:P.muted,flex:1,position:"relative"}}>
             <span style={{fontSize:20}}>{activeTab===tab?activeIcon:inactiveIcon}</span>
             <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>{label}</span>
             {tab==="achievements"&&earnedAchs.length>0&&<span style={{position:"absolute",top:4,right:"18%",background:P.gold,borderRadius:8,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,color:"#000",padding:"0 4px"}}>{earnedAchs.length}</span>}
+            {tab==="friends"&&pendingRequests.length>0&&<span style={{position:"absolute",top:4,right:"18%",background:"#ef4444",borderRadius:8,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,color:"#fff",padding:"0 4px"}}>{pendingRequests.length}</span>}
           </button>
         ))}
         {activeTab==="library"&&<div style={{position:"absolute",bottom:14,left:"50%",transform:"translateX(-50%)"}}><button onClick={()=>setShowAdd(true)} style={{width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${P.accentLt},${P.accent})`,color:"#fff",border:"none",fontSize:24,cursor:"pointer",boxShadow:`0 0 0 1px ${P.accent}, 0 8px 32px ${P.accentGlow}, 0 4px 12px rgba(0,0,0,.5)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300}}>＋</button></div>}
@@ -2245,6 +2287,305 @@ function App({ user }) {
   </div>;
 }
 
+
+// ─── Friends helpers ──────────────────────────────────────────────────────────
+const encodeEmail = e => e.toLowerCase().replace(/\./g,'~').replace(/@/g,'__at__');
+
+async function writePublicProfile(firebaseUser) {
+  try {
+    const db = firebase.firestore();
+    const data = {
+      uid: firebaseUser.uid,
+      displayName: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+      email: firebaseUser.email,
+      photoURL: firebaseUser.photoURL || null,
+    };
+    const batch = db.batch();
+    batch.set(db.doc(`profiles/${firebaseUser.uid}`), data, {merge:true});
+    batch.set(db.doc(`emailToUid/${encodeEmail(firebaseUser.email)}`), {uid: firebaseUser.uid}, {merge:true});
+    await batch.commit();
+  } catch(e) { console.warn('writePublicProfile failed:', e); }
+}
+
+function FriendProfileSheet({ friendUid, friendName, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    firebase.firestore().doc(`users/${friendUid}`).get()
+      .then(snap => { if(snap.exists) setData(snap.data()); setLoading(false); })
+      .catch(() => { setErr(true); setLoading(false); });
+  }, [friendUid]);
+
+  if(loading) return <div style={{padding:40,textAlign:"center",fontFamily:"'Nunito',sans-serif",color:P.muted}}>Loading…</div>;
+  if(err||!data) return <div style={{padding:40,textAlign:"center",fontFamily:"'Nunito',sans-serif",color:P.muted}}>Couldn't load profile.</div>;
+
+  const books = data.books || [];
+  const year = new Date().getFullYear();
+  const readThisYear = books.filter(b=>b.status==="read"&&(b.readDates||[]).some(d=>d.startsWith(String(year)))).length;
+  const goal = data.goal || 0;
+  const pct = goal > 0 ? Math.min(100, Math.round(readThisYear/goal*100)) : 0;
+  const wishlist = books.filter(b=>b.status==="wishlist");
+  const earned = (data.achievements||[]).length;
+  const LEVELS=[{n:"Curious Mind",min:0},{n:"Avid Reader",min:100},{n:"Book Lover",min:300},{n:"Bibliophile",min:600},{n:"Scholar",min:1000},{n:"Legendary",min:2000}];
+  const xp = books.filter(b=>b.status==="read").length*50;
+  const level = [...LEVELS].reverse().find(l=>xp>=l.min)||LEVELS[0];
+
+  return (
+    <div style={{padding:"4px 0 24px"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:14,padding:"0 4px 20px",borderBottom:`1px solid ${P.border}`}}>
+        <div style={{width:56,height:56,borderRadius:28,background:P.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,overflow:"hidden",flexShrink:0}}>
+          <span>{(friendName||"?")[0].toUpperCase()}</span>
+        </div>
+        <div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text}}>{friendName}</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.accent,fontWeight:700}}>{level.n} · {xp} XP · {earned} achievement{earned!==1?"s":""}</div>
+        </div>
+      </div>
+
+      {/* Reading goal */}
+      <div style={{padding:"16px 0",borderBottom:`1px solid ${P.border}`}}>
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,color:P.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Reading Goal {year}</div>
+        <div style={{display:"flex",alignItems:"center",gap:14}}>
+          <div style={{flex:1,height:10,background:P.bgSurface,borderRadius:5,overflow:"hidden"}}>
+            <div style={{width:`${pct}%`,height:"100%",background:P.accent,borderRadius:5,transition:"width .5s"}}/>
+          </div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:800,color:P.text,flexShrink:0}}>
+            {goal>0 ? `${readThisYear} / ${goal}` : `${readThisYear} read`}
+          </div>
+        </div>
+      </div>
+
+      {/* Library stats */}
+      <div style={{padding:"16px 0",borderBottom:`1px solid ${P.border}`}}>
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,color:P.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Library</div>
+        <div style={{display:"flex",gap:8}}>
+          {[["Total",books.filter(b=>b.status!=="suggestion").length,P.accent],["Read",books.filter(b=>b.status==="read").length,"#3b82f6"],["Reading",books.filter(b=>b.status==="reading").length,"#10b981"],["Wishlist",wishlist.length,"#a855f7"]].map(([l,v,c])=>(
+            <div key={l} style={{flex:1,background:P.bgSurface,borderRadius:10,padding:"10px 6px",textAlign:"center",border:`1px solid ${P.border}`}}>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:900,color:c}}>{v}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:9,color:P.muted,fontWeight:700,textTransform:"uppercase"}}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Wishlist */}
+      {wishlist.length>0&&<div style={{paddingTop:16}}>
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,color:P.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Wishlist ({wishlist.length})</div>
+        {wishlist.slice(0,10).map(b=>{
+          const links=pLinks(b);
+          return <div key={b.id} style={{background:P.bgSurface,borderRadius:12,padding:"12px",marginBottom:8,border:`1px solid ${P.border}`}}>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,marginBottom:4}}>{b.title}</div>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginBottom:8}}>{b.authors?.[0]||""}</div>
+            <div style={{display:"flex",gap:6}}>
+              {[["🛒 Amazon",links.amazon,"#b45309"],["📗 B&N",links.bn,"#1e40af"],["🏷 HPB",links.hpb,"#991b1b"]].map(([l,u,c])=>(
+                <a key={l} href={u} target="_blank" rel="noreferrer"
+                  style={{flex:1,background:c,color:"#fff",borderRadius:8,padding:"6px 4px",fontFamily:"'Nunito',sans-serif",fontSize:10,fontWeight:700,textAlign:"center",textDecoration:"none",display:"block"}}>{l}</a>
+              ))}
+            </div>
+          </div>;
+        })}
+        {wishlist.length>10&&<div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,textAlign:"center",padding:"8px 0"}}>+{wishlist.length-10} more</div>}
+      </div>}
+      {wishlist.length===0&&<div style={{paddingTop:16,fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,textAlign:"center"}}>No wishlist books yet.</div>}
+    </div>
+  );
+}
+
+function AddFriendModal({ user, friends, onClose, onRequestSent }) {
+  const [email, setEmail] = useState('');
+  const [found, setFound] = useState(null);
+  const [status, setStatus] = useState('idle'); // idle | searching | not-found | found | self | already | sending | sent | error
+
+  async function search() {
+    const e = email.trim().toLowerCase();
+    if (!e) return;
+    setStatus('searching'); setFound(null);
+    try {
+      const doc = await firebase.firestore().doc(`emailToUid/${encodeEmail(e)}`).get();
+      if (!doc.exists) { setStatus('not-found'); return; }
+      const uid = doc.data().uid;
+      if (uid === user.uid) { setStatus('self'); return; }
+      if (friends.some(f=>f.uid===uid)) { setStatus('already'); return; }
+      const prof = await firebase.firestore().doc(`profiles/${uid}`).get();
+      if (!prof.exists) { setStatus('not-found'); return; }
+      setFound({uid, ...prof.data()}); setStatus('found');
+    } catch { setStatus('error'); }
+  }
+
+  async function send() {
+    if (!found) return;
+    setStatus('sending');
+    try {
+      await firebase.firestore().collection('friendRequests').add({
+        fromUid: user.uid,
+        fromDisplayName: user.displayName || user.email.split('@')[0],
+        fromPhotoURL: user.photoURL || null,
+        fromEmail: user.email,
+        toUid: found.uid,
+        status: 'pending',
+        sentAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      setStatus('sent');
+      onRequestSent();
+    } catch { setStatus('error'); }
+  }
+
+  const msgs = {
+    'not-found': "No Bookshelf account found with that email.",
+    'self': "That's your own email address.",
+    'already': "You're already friends with this person.",
+    'error': "Something went wrong — please try again.",
+  };
+
+  return (
+    <div style={{padding:"4px 0"}}>
+      <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,margin:"0 0 16px"}}>Add Friend</h3>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <input value={email} onChange={e=>setEmail(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&search()}
+          placeholder="Friend's email address"
+          type="email"
+          style={{flex:1,padding:"11px 14px",borderRadius:12,border:`1.5px solid ${P.border}`,background:P.bgSurface,color:P.text,fontFamily:"'Nunito',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+        <button onClick={search} disabled={!email.trim()||status==='searching'}
+          style={{padding:"11px 18px",borderRadius:12,background:P.accent,color:"#fff",border:"none",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",whiteSpace:"nowrap"}}>
+          {status==='searching'?"…":"Search"}
+        </button>
+      </div>
+
+      {msgs[status]&&<p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:"#ef4444",margin:"0 0 12px"}}>{msgs[status]}</p>}
+
+      {status==='found'&&found&&<div style={{background:P.bgSurface,borderRadius:14,padding:16,border:`1px solid ${P.border}`,display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <div style={{width:44,height:44,borderRadius:22,background:P.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>
+          {(found.displayName||"?")[0].toUpperCase()}
+        </div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,fontWeight:700,color:P.text}}>{found.displayName}</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>{found.email}</div>
+        </div>
+        <button onClick={send} disabled={status==='sending'}
+          style={{padding:"9px 16px",borderRadius:10,background:P.accent,color:"#fff",border:"none",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>
+          Add
+        </button>
+      </div>}
+
+      {status==='sent'&&<div style={{background:"rgba(16,185,129,.1)",borderRadius:12,padding:14,border:"1px solid rgba(16,185,129,.3)",fontFamily:"'Nunito',sans-serif",fontSize:13,color:"#10b981",textAlign:"center",marginBottom:12}}>
+        ✓ Friend request sent!
+      </div>}
+
+      <button onClick={onClose} style={{width:"100%",padding:"11px",borderRadius:12,background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
+        Close
+      </button>
+    </div>
+  );
+}
+
+function FriendsScreen({ user, friends, setFriends, pendingRequests, setPendingRequests }) {
+  const [showAddFriend, setShowAddFriend] = useState(false);
+  const [viewingFriend, setViewingFriend] = useState(null); // {uid, displayName}
+
+  async function acceptRequest(req) {
+    try {
+      const db = firebase.firestore();
+      const friendProfile = {uid:req.fromUid, displayName:req.fromDisplayName||req.fromEmail||"Friend", photoURL:req.fromPhotoURL||null, email:req.fromEmail||''};
+      setFriends(prev => prev.some(f=>f.uid===req.fromUid) ? prev : [...prev, friendProfile]);
+      await db.doc(`friendRequests/${req.id}`).update({status:'accepted'});
+      setPendingRequests(prev=>prev.filter(r=>r.id!==req.id));
+    } catch(e) { console.error('acceptRequest failed:', e); }
+  }
+
+  async function declineRequest(req) {
+    try {
+      await firebase.firestore().doc(`friendRequests/${req.id}`).delete();
+      setPendingRequests(prev=>prev.filter(r=>r.id!==req.id));
+    } catch(e) { console.error('declineRequest failed:', e); }
+  }
+
+  async function removeFriend(uid) {
+    setFriends(prev => prev.filter(f=>f.uid!==uid));
+  }
+
+  return (
+    <div style={{paddingBottom:84}}>
+      {/* Header */}
+      <div style={{padding:"20px 20px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:P.text,margin:0}}>Friends</h2>
+        <button onClick={()=>setShowAddFriend(true)}
+          style={{background:P.accent,color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>
+          + Add Friend
+        </button>
+      </div>
+
+      {/* Pending requests */}
+      {pendingRequests.length>0&&<div style={{padding:"0 20px 16px"}}>
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,color:P.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>
+          Friend Requests ({pendingRequests.length})
+        </div>
+        {pendingRequests.map(req=>(
+          <div key={req.id} style={{background:P.bgCard,borderRadius:14,padding:"14px",marginBottom:8,border:`1px solid ${P.border}`,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:40,height:40,borderRadius:20,background:P.accent,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+              {(req.fromDisplayName||"?")[0].toUpperCase()}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,fontWeight:700,color:P.text}}>{req.fromDisplayName||req.fromEmail}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>{req.fromEmail}</div>
+            </div>
+            <button onClick={()=>acceptRequest(req)}
+              style={{padding:"7px 12px",borderRadius:8,background:P.accent,color:"#fff",border:"none",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:12,cursor:"pointer"}}>
+              Accept
+            </button>
+            <button onClick={()=>declineRequest(req)}
+              style={{padding:"7px 12px",borderRadius:8,background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              Decline
+            </button>
+          </div>
+        ))}
+      </div>}
+
+      {/* Friends list */}
+      <div style={{padding:"0 20px"}}>
+        {friends.length===0&&pendingRequests.length===0&&(
+          <div style={{textAlign:"center",padding:"64px 20px"}}>
+            <div style={{fontSize:52,marginBottom:14}}>👥</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,color:P.text,fontWeight:700,marginBottom:10}}>No friends yet</div>
+            <p style={{fontFamily:"'Nunito',sans-serif",fontSize:14,color:P.muted,lineHeight:1.6,marginBottom:24}}>Add friends to compare libraries, check each other's wishlists, and track reading goals together.</p>
+            <button onClick={()=>setShowAddFriend(true)}
+              style={{background:P.accent,color:"#fff",border:"none",borderRadius:14,padding:"13px 28px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer"}}>
+              Add Your First Friend
+            </button>
+          </div>
+        )}
+        {friends.map(f=>(
+          <div key={f.uid} onClick={()=>setViewingFriend(f)}
+            style={{background:P.bgCard,borderRadius:16,padding:"16px",marginBottom:10,border:`1px solid ${P.border}`,display:"flex",alignItems:"center",gap:14,cursor:"pointer",transition:"border-color .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent}
+            onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}>
+            <div style={{width:48,height:48,borderRadius:24,background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
+              {(f.displayName||"?")[0].toUpperCase()}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700,color:P.text}}>{f.displayName}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>{f.email}</div>
+            </div>
+            <span style={{color:P.muted,fontSize:18}}>›</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Add Friend Sheet */}
+      {showAddFriend&&<Sheet onClose={()=>setShowAddFriend(false)}>
+        <AddFriendModal user={user} friends={friends} onClose={()=>setShowAddFriend(false)} onRequestSent={()=>setTimeout(()=>setShowAddFriend(false),1500)}/>
+      </Sheet>}
+
+      {/* Friend Profile Sheet */}
+      {viewingFriend&&<Sheet onClose={()=>setViewingFriend(null)}>
+        <FriendProfileSheet friendUid={viewingFriend.uid} friendName={viewingFriend.displayName} onClose={()=>setViewingFriend(null)}/>
+      </Sheet>}
+    </div>
+  );
+}
 
 // ─── Auth screens ─────────────────────────────────────────────────────────────
 function LoadingScreen() {
@@ -2318,10 +2659,11 @@ function Root() {
         const snap  = await _userDocRef.get();
         _userCache  = snap.exists
           ? snap.data()
-          : { books:null, goal:0, shelves:[], achievements:[], savedViews:[], onboarded:false, lastBackup:null };
+          : { books:null, goal:0, shelves:[], achievements:[], savedViews:[], onboarded:false, lastBackup:null, friends:[] };
         if (!snap.exists) await _userDocRef.set(_userCache);
         setUser(firebaseUser);
         setAuthState('authenticated');
+        writePublicProfile(firebaseUser);
       } catch(e) {
         console.error("Failed to load user data:", e);
         setDbError(e.code || e.message || 'unknown error');
