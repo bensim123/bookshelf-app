@@ -21,8 +21,7 @@ A personal book library tracker that runs as a web app — no app store, no inst
 - **Achievements** — 45 badges across 6 categories with XP and level system
 - **AI suggestions** — personalized reading picks or mood-based recommendations
 - **Saved views** — save filter + sort combinations as named presets
-- **Backup/restore** — export/import your full library as JSON
-- **Goodreads/StoryGraph CSV import**
+- **Import / Export CSV** — export your library to CSV (opens in Excel/Sheets); import from Bookshelf CSV, Goodreads, or StoryGraph with step-by-step instructions
 - **Dark and light themes** — persists across sessions
 - **Works offline** after first load (service worker caching)
 - **Multi-device sync** via Firebase Firestore — your library follows you everywhere

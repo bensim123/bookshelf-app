@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v24';
+const CACHE='bookshelf-v25';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v24 ok');
+        console.log('SW v25 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1285,7 +1285,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="24";
+const APP_VERSION="25";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -1294,7 +1294,7 @@ const HELP_SECTIONS=[
   {title:"AI Features",icon:"✨",body:`The Suggest tab offers two AI-powered tools:\n• Personalized Picks — 25 recommendations based on your library\n• Mood Search — describe a mood or theme and get matching books\nSeries detection also uses AI to find complete series lists.`},
   {title:"Achievements & XP",icon:"🏆",body:`Earn badges by reaching milestones: finishing books, exploring genres, tracking progress, lending books, and more. Each badge awards XP. Enough XP raises your reader level, shown at the top of the Awards tab.`},
   {title:"Custom Shelves & Filters",icon:"📂",body:`Create custom shelves (e.g. "Beach Reads", "Signed Copies") from the 📂 button in the library header. Apply them in the book detail view. Use ⚙ Filter & Sort to filter by status, genre, shelf, or sort order. Save any combination as a named view.`},
-  {title:"Backup & Sync",icon:"💾",body:`Your library automatically syncs across devices via Firebase when you're signed in with Google. You can also export a full JSON backup from the 💾 backup button and restore it on any device — useful as a manual safety copy.`},
+  {title:"Import & Export",icon:"📤",body:`Your library automatically syncs across devices via Firebase when you're signed in with Google. You can also export your full library to CSV from the Profile menu → Import / Export. The CSV opens in Excel or Sheets and can be imported back into Bookshelf at any time. You can also import from Goodreads or StoryGraph — step-by-step instructions are included in the Import tab.`},
 ];
 function AboutModal({onClose}) {
   const [open,setOpen]=useState(null);
@@ -1329,7 +1329,7 @@ function AboutModal({onClose}) {
   </div>;
 }
 
-function AddModal({onAdd,onClose,onOpenImport,books}) {
+function AddModal({onAdd,onClose,books}) {
   const [mode,setMode]=useState(null);const [msg,setMsg]=useState("");
   const [notFoundIsbn,setNotFoundIsbn]=useState("");
   async function onISBN(isbn){setMode("loading");const book=await fetchByISBN(isbn);if(book){onAdd(book);}else{setNotFoundIsbn(isbn);setMsg("ISBN not found — this edition may be too new for Open Library or Google Books. Try searching by title above.");setMode(null);}}
@@ -1899,296 +1899,314 @@ function AchievementsScreen({books, goal, earned}) {
 }
 
 
-// ─── CSV Import (Goodreads / StoryGraph) ─────────────────────────────────────
+// ─── CSV helpers ──────────────────────────────────────────────────────────────
+function parseCSVLine(line) {
+  const cols=[]; let cur=''; let inQ=false;
+  for(const ch of line){
+    if(ch==='"'){inQ=!inQ;}
+    else if(ch===','&&!inQ){cols.push(cur);cur='';}
+    else{cur+=ch;}
+  }
+  cols.push(cur);
+  return cols.map(c=>c.replace(/^"|"$/g,'').replace(/""/g,'"').trim());
+}
+
 function parseGoodreadsCSV(text) {
   const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase());
+  const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase());
   const books = [];
   for (let i = 1; i < lines.length; i++) {
-    // Handle quoted fields with commas inside
-    const cols = []; let cur = ''; let inQ = false;
-    for (const ch of lines[i]) {
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
-      else { cur += ch; }
-    }
-    cols.push(cur.trim());
+    if(!lines[i].trim()) continue;
+    const cols = parseCSVLine(lines[i]);
     const row = {};
-    headers.forEach((h, i) => { row[h] = (cols[i] || '').replace(/^"|"$/g,'').trim(); });
+    headers.forEach((h,j)=>{ row[h]=(cols[j]||'').trim(); });
     if (!row.title) continue;
-    // Map Goodreads/StoryGraph fields to our model
     const statusMap = {
-      'read': 'read', 'currently-reading': 'reading', 'currently reading': 'reading',
-      'to-read': 'wishlist', 'to read': 'wishlist', 'did-not-finish': 'dnf',
-      'owned': 'owned', 'on-deck': 'owned',
+      'read':'read','currently-reading':'reading','currently reading':'reading',
+      'to-read':'wishlist','to read':'wishlist','did-not-finish':'dnf',
+      'owned':'owned','on-deck':'owned',
     };
-    const grStatus = (row['exclusive shelf'] || row['shelf'] || row['read status'] || 'owned').toLowerCase();
-    const status = statusMap[grStatus] || 'owned';
-    const rating = parseInt(row['my rating'] || row['star rating'] || '0') || 0;
-    const pages = row['number of pages'] || row['pages'] || '';
-    const year = row['year published'] || row['original publication year'] || '';
-    const isbn = (row['isbn13'] || row['isbn'] || '').replace(/[^0-9]/g,'');
+    const grStatus = (row['exclusive shelf']||row['shelf']||row['read status']||'owned').toLowerCase();
+    const status = statusMap[grStatus]||'owned';
+    const rating = parseInt(row['my rating']||row['star rating']||'0')||0;
+    const pages = row['number of pages']||row['pages']||'';
+    const year = row['year published']||row['original publication year']||'';
+    const isbn = (row['isbn13']||row['isbn']||'').replace(/[^0-9]/g,'');
     books.push({
-      id: crypto.randomUUID(),
-      title: row.title || 'Unknown',
-      subtitle: '',
-      authors: [(row.author || row['primary author'] || 'Unknown').split(',')[0].trim()],
-      cover: isbn.length === 13 ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg` : null,
-      genre: row['bookshelves'] || row['genres'] || '',
-      categories: [],
-      year, publishedDate: year,
-      publisher: row['publisher'] || '',
-      pages: pages.replace(/[^0-9]/g,''),
-      description: '',
-      language: 'en',
-      isbn13: isbn.length === 13 ? isbn : '',
-      isbn10: isbn.length === 10 ? isbn : '',
-      averageRating: parseFloat(row['average rating'] || '0') || 0,
-      ratingsCount: 0,
-      previewLink: '',
-      status, rating,
-      notes: row['private notes'] || row['notes'] || '',
-      addedAt: Date.now(),
-      customShelves: [], readDates: [], highlights: [],
+      id:crypto.randomUUID(), title:row.title||'Unknown', subtitle:'',
+      authors:[(row.author||row['primary author']||'Unknown').split(',')[0].trim()],
+      cover: isbn.length===13?`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg`:null,
+      genre:row['bookshelves']||row['genres']||'', categories:[],
+      year, publishedDate:year, publisher:row['publisher']||'',
+      pages:pages.replace(/[^0-9]/g,''), description:'', language:'en',
+      isbn13:isbn.length===13?isbn:'', isbn10:isbn.length===10?isbn:'',
+      averageRating:parseFloat(row['average rating']||'0')||0, ratingsCount:0,
+      previewLink:'', status, rating,
+      notes:row['private notes']||row['notes']||'',
+      addedAt:Date.now(), customShelves:[], readDates:[], highlights:[],
+      bookFormat:'physical', bookBinding:'unknown', ownedFormats:['physical'],
     });
   }
   return books;
 }
 
-function CSVImportModal({ onImport, onClose }) {
-  const fileRef = useRef(null);
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+function parseBookshelfCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = parseCSVLine(lines[0]).map(h=>h.toLowerCase());
+  const books = [];
+  for (let i = 1; i < lines.length; i++) {
+    if(!lines[i].trim()) continue;
+    const cols = parseCSVLine(lines[i]);
+    const row = {};
+    headers.forEach((h,j)=>{ row[h]=(cols[j]||'').trim(); });
+    if (!row.title) continue;
+    const authors = row.author ? row.author.split('|').map(a=>a.trim()).filter(Boolean) : ['Unknown Author'];
+    const shelves = row['custom shelves'] ? row['custom shelves'].split('|').filter(Boolean) : [];
+    const highlights = row.highlights ? row.highlights.split('|').filter(Boolean).map(h=>({id:crypto.randomUUID(),text:h,addedAt:Date.now()})) : [];
+    const isbn13 = row.isbn13||'';
+    const fmt = row.format||'physical';
+    const readDateStr = row['date read']||'';
+    books.push({
+      id:crypto.randomUUID(), title:row.title, subtitle:row.subtitle||'',
+      authors,
+      cover: isbn13.length===13?`https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`:null,
+      genre:row.genre||'', categories:row.genre?[row.genre]:[],
+      year:row.year||'', publishedDate:row.year||'', publisher:'',
+      pages:row.pages||'', description:'', language:'en',
+      isbn13, isbn10:row.isbn10||'',
+      averageRating:0, ratingsCount:0, previewLink:'',
+      status:row.status||'owned',
+      rating:parseInt(row.rating||'0')||0,
+      notes:row.notes||'',
+      addedAt: row['date added'] ? (new Date(row['date added']).getTime()||Date.now()) : Date.now(),
+      readDates: readDateStr ? [readDateStr] : [],
+      customShelves:shelves, highlights,
+      bookFormat:fmt, bookBinding:row.binding||'unknown',
+      ownedFormats:[fmt],
+    });
+  }
+  return books;
+}
 
-  async function handleFile(file) {
-    if (!file) return;
-    setBusy(true); setError(''); setPreview(null);
-    try {
+function exportToCSV(books) {
+  function esc(v) {
+    const s = String(v==null?'':v);
+    return (s.includes(',')||s.includes('"')||s.includes('\n')) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }
+  const headers = ['Title','Author','Subtitle','Status','Rating','Format','Binding','Genre','Year','ISBN13','ISBN10','Pages','Notes','Date Added','Date Read','Custom Shelves','Highlights'];
+  const rows = books.map(b=>[
+    esc(b.title||''),
+    esc((b.authors||[]).join('|')),
+    esc(b.subtitle||''),
+    esc(b.status||'owned'),
+    esc(b.rating||0),
+    esc(b.bookFormat||'physical'),
+    esc(b.bookBinding||'unknown'),
+    esc(b.genre||''),
+    esc(b.year||''),
+    esc(b.isbn13||''),
+    esc(b.isbn10||''),
+    esc(b.pages||''),
+    esc(b.notes||''),
+    esc(new Date(b.addedAt||Date.now()).toISOString().slice(0,10)),
+    esc(b.readDates?.length>0 ? b.readDates[b.readDates.length-1] : ''),
+    esc((b.customShelves||[]).join('|')),
+    esc((b.highlights||[]).map(h=>h.text||'').join('|')),
+  ].join(','));
+  const csv = [headers.join(','),...rows].join('\n');
+  const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`bookshelf-export-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Import / Export Modal ────────────────────────────────────────────────────
+function DataModal({ books, onImport, onRestore, onClose }) {
+  const [tab,setTab] = useState('export');
+  const [src,setSrc] = useState(null);   // null | 'bookshelf' | 'goodreads' | 'storygraph'
+  const [preview,setPreview] = useState(null);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState(false);
+  const [confirmFull,setConfirmFull] = useState(null); // books[] waiting to replace library
+  const fileRef = useRef();
+
+  function switchTab(t){setTab(t);setSrc(null);setPreview(null);setError('');}
+
+  async function handleFile(file){
+    if(!file)return;
+    setBusy(true);setError('');setPreview(null);
+    try{
       const text = await file.text();
-      const books = parseGoodreadsCSV(text);
-      if (books.length === 0) { setError('No books found. Make sure this is a Goodreads or StoryGraph export CSV.'); setBusy(false); return; }
-      setPreview(books);
-    } catch(e) { setError('Could not parse file. Please use a Goodreads or StoryGraph CSV export.'); }
+      const parsed = src==='bookshelf' ? parseBookshelfCSV(text) : parseGoodreadsCSV(text);
+      if(!parsed.length){setError('No books found. Check that you selected the right file for this source.');setBusy(false);return;}
+      setPreview(parsed);
+    }catch(e){setError('Could not read the file. Check the format and try again.');}
     setBusy(false);
   }
 
-  const byStatus = preview ? {
-    read: preview.filter(b=>b.status==='read').length,
-    reading: preview.filter(b=>b.status==='reading').length,
-    wishlist: preview.filter(b=>b.status==='wishlist').length,
-    owned: preview.filter(b=>b.status==='owned').length,
-    dnf: preview.filter(b=>b.status==='dnf').length,
-  } : null;
+  const SOURCES = [
+    {k:'goodreads',  icon:'📚', title:'Goodreads',    desc:'goodreads_library_export.csv'},
+    {k:'storygraph', icon:'📊', title:'StoryGraph',   desc:'storygraph_export_*.csv'},
+    {k:'bookshelf',  icon:'📱', title:'Bookshelf CSV',desc:'bookshelf-export-*.csv (from this app)'},
+  ];
+  const INSTRUCTIONS = {
+    goodreads: {
+      title:'Export from Goodreads',
+      steps:['Open goodreads.com on a desktop browser','Click My Books in the top nav','Scroll to the bottom of the left sidebar → click Import and Export','Click Export Library — Goodreads sends a download link','Open the link and save the file (goodreads_library_export.csv)'],
+      note:'Imports: title, author, status, rating, shelves, pages, ISBN, and read dates.',
+    },
+    storygraph: {
+      title:'Export from StoryGraph',
+      steps:['Sign into app.thestorygraph.com','Click your avatar → Account Settings','Scroll to Import/Export → click Export my data','Click Export your books and download the CSV file'],
+      note:'Imports: title, author, status, rating, and read dates.',
+    },
+    bookshelf: {
+      title:'Bookshelf CSV',
+      steps:['Go to Profile menu → Import / Export','Switch to the Export tab and download your CSV','To import it back, return here and choose Bookshelf CSV'],
+      note:'Full round-trip: preserves ratings, notes, highlights, shelves, formats, and all dates.',
+    },
+  };
+
+  const byStatus = preview ? ['read','reading','owned','wishlist','dnf'].reduce((o,s)=>{o[s]=preview.filter(b=>b.status===s).length;return o;},{}) : null;
+
+  if(confirmFull) return (
+    <div style={{padding:'8px 0',textAlign:'center'}}>
+      <div style={{fontSize:52,marginBottom:12}}>⚠️</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,marginBottom:10}}>Replace Your Library?</div>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,color:P.textLt,lineHeight:1.7,marginBottom:20}}>
+        This will <strong>replace</strong> your current {books.length} book{books.length!==1?'s':''} with {confirmFull.length} books from the CSV. This cannot be undone.
+      </div>
+      <div style={{display:'flex',gap:10}}>
+        <button onClick={()=>{onRestore(confirmFull);onClose();}} style={{flex:1,background:'linear-gradient(135deg,#ef4444,#dc2626)',color:'#fff',border:'none',borderRadius:14,padding:'14px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:'pointer'}}>
+          Yes, Replace Library
+        </button>
+        <button onClick={()=>setConfirmFull(null)} style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:14,padding:'14px 18px',fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer'}}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div>
-      <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0,fontSize:20,marginBottom:4}}>Import Library</h3>
-      <p style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,marginBottom:18,lineHeight:1.6}}>
-        Import your library from <strong style={{color:P.text}}>Goodreads</strong> or <strong style={{color:P.text}}>StoryGraph</strong>.<br/>
-        Export your data from their settings, then upload the CSV here.
-      </p>
-      {!preview && (
-        <div onClick={()=>fileRef.current?.click()}
-          style={{border:`2px dashed ${P.border}`,borderRadius:16,padding:"32px 20px",textAlign:"center",cursor:"pointer",background:P.bgSurface,transition:"border-color .2s"}}
-          onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent}
-          onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}>
-          <div style={{fontSize:40,marginBottom:10}}>{busy?"⏳":"📂"}</div>
-          <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:700,color:P.text,marginBottom:4}}>{busy?"Reading file…":"Tap to select CSV file"}</div>
-          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>Goodreads export · StoryGraph export</div>
+      <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0,fontSize:22,marginBottom:18}}>Import / Export</h3>
+      {/* Tabs */}
+      <div style={{display:'flex',gap:4,marginBottom:20,background:P.bgSurface,borderRadius:12,padding:4}}>
+        {[{k:'export',label:'📤 Export'},{k:'import',label:'📥 Import'}].map(({k,label})=>(
+          <button key={k} onClick={()=>switchTab(k)} style={{flex:1,padding:'10px',borderRadius:9,border:'none',background:tab===k?P.bgCard:'transparent',color:tab===k?P.text:P.muted,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer',boxShadow:tab===k?'0 1px 4px rgba(0,0,0,.2)':'none',transition:'all .15s'}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Export tab ─────────────────────────────────────────────────────── */}
+      {tab==='export'&&(
+        <div>
+          <div style={{background:P.bgSurface,borderRadius:16,padding:'18px 20px',marginBottom:14,border:`1px solid ${P.border}`}}>
+            <div style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:14}}>
+              <div style={{fontSize:28}}>📊</div>
+              <div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,color:P.text}}>Export to CSV</div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,marginTop:3,lineHeight:1.7}}>
+                  Downloads a spreadsheet with all {books.length} books. Opens in Excel, Numbers, or Google Sheets. Can be imported back into Bookshelf at any time.
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginTop:6}}>
+                  Includes: title, author, status, rating, format, genre, ISBN, pages, notes, highlights, dates, and custom shelves.
+                </div>
+              </div>
+            </div>
+            <button onClick={()=>{exportToCSV(books);onClose();}} style={{width:'100%',background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:'#fff',border:'none',borderRadius:12,padding:'13px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:'pointer',boxShadow:`0 4px 16px ${P.accentGlow}`}}>
+              Download CSV ({books.length} book{books.length!==1?'s':''})
+            </button>
+          </div>
+          <div style={{background:'rgba(99,102,241,.08)',borderRadius:12,padding:'12px 16px',border:`1px solid ${P.borderAccent}`}}>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.textLt,lineHeight:1.6}}>
+              💡 <strong>Tip:</strong> Save the file to iCloud Drive or Google Drive. You can import it back at any time using the Import tab.
+            </div>
+          </div>
         </div>
       )}
-      <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
-      {error && <div style={{background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.25)",borderRadius:10,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.red,marginTop:12}}>{error}</div>}
-      {preview && (
+
+      {/* ── Import: choose source ───────────────────────────────────────────── */}
+      {tab==='import'&&!src&&!preview&&(
         <div>
-          <div style={{background:P.bgSurface,borderRadius:12,padding:"14px",border:`1px solid ${P.border}`,marginBottom:16}}>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,marginBottom:14,lineHeight:1.5}}>Choose where your CSV file came from:</div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {SOURCES.map(({k,icon,title,desc})=>(
+              <button key={k} onClick={()=>setSrc(k)} style={{display:'flex',alignItems:'center',gap:16,padding:'16px',background:P.bgSurface,border:`1.5px solid ${P.border}`,borderRadius:16,cursor:'pointer',textAlign:'left',transition:'border-color .15s'}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}>
+                <div style={{fontSize:28,flexShrink:0}}>{icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,fontWeight:700,color:P.text}}>{title}</div>
+                  <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginTop:2}}>{desc}</div>
+                </div>
+                <span style={{color:P.muted,fontSize:18}}>›</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Import: instructions + file picker ─────────────────────────────── */}
+      {tab==='import'&&src&&!preview&&(()=>{
+        const ins=INSTRUCTIONS[src];
+        return (
+          <div>
+            <button onClick={()=>{setSrc(null);setError('');}} style={{display:'flex',alignItems:'center',gap:6,background:'none',border:'none',color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:13,cursor:'pointer',padding:'0 0 14px',fontWeight:700}}>‹ Back</button>
+            <div style={{background:P.bgSurface,borderRadius:14,padding:'16px',marginBottom:14,border:`1px solid ${P.border}`}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:800,color:P.text,marginBottom:10}}>{ins.title}</div>
+              <ol style={{margin:'0',padding:'0 0 0 18px',fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.textLt,lineHeight:2}}>
+                {ins.steps.map((s,i)=><li key={i}>{s}</li>)}
+              </ol>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginTop:10,padding:'8px 12px',background:P.bgCard,borderRadius:8,lineHeight:1.5}}>
+                ℹ️ {ins.note}
+              </div>
+            </div>
+            <div onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${P.border}`,borderRadius:16,padding:'28px 20px',textAlign:'center',cursor:'pointer',background:P.bgSurface}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}>
+              <div style={{fontSize:36,marginBottom:8}}>{busy?'⏳':'📂'}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:700,color:P.text,marginBottom:4}}>{busy?'Reading file…':'Tap to select CSV file'}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>Select the .csv file you downloaded</div>
+            </div>
+            <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={e=>handleFile(e.target.files[0])}/>
+            {error&&<div style={{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.25)',borderRadius:10,padding:'12px 14px',fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.red,marginTop:12}}>{error}</div>}
+          </div>
+        );
+      })()}
+
+      {/* ── Import: preview ─────────────────────────────────────────────────── */}
+      {tab==='import'&&preview&&(
+        <div>
+          <div style={{background:P.bgSurface,borderRadius:12,padding:'14px',border:`1px solid ${P.border}`,marginBottom:14}}>
             <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:800,color:P.text,marginBottom:10}}>Preview — {preview.length} books found</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:8}}>
               {Object.entries(byStatus).filter(([,v])=>v>0).map(([s,v])=>(
-                <div key={s} style={{background:P.bgCard,borderRadius:8,padding:"6px 12px",border:`1px solid ${SC[s]||P.border}`}}>
+                <div key={s} style={{background:P.bgCard,borderRadius:8,padding:'6px 12px',border:`1px solid ${SC[s]||P.border}`}}>
                   <span style={{fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,color:SC[s]||P.text}}>{SL[s]}: {v}</span>
                 </div>
               ))}
             </div>
-            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginTop:10}}>
-              Books already in your library (matched by title) will be skipped.
-            </div>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>Books already in your library (matched by title) will be skipped.</div>
           </div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>{onImport(preview);onClose();}}
-              style={{flex:1,background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:14,padding:"14px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:`0 4px 16px ${P.accentGlow}`}}>
-              Import {preview.length} Books
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:10}}>
+            <button onClick={()=>{onImport(preview);onClose();}} style={{width:'100%',background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:'#fff',border:'none',borderRadius:14,padding:'14px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:'pointer',boxShadow:`0 4px 16px ${P.accentGlow}`}}>
+              Add {preview.length} Book{preview.length!==1?'s':''} to Library
             </button>
-            <button onClick={()=>setPreview(null)}
-              style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:14,padding:"14px 18px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>
-              Back
-            </button>
+            {src==='bookshelf'&&(
+              <button onClick={()=>setConfirmFull(preview)} style={{width:'100%',background:'rgba(239,68,68,.08)',color:P.red,border:'1px solid rgba(239,68,68,.3)',borderRadius:14,padding:'13px',fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:13,cursor:'pointer'}}>
+                Replace Entire Library with This File
+              </button>
+            )}
+            <button onClick={()=>setPreview(null)} style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:14,padding:'12px',fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:'pointer'}}>Back</button>
           </div>
         </div>
-      )}
-      {!preview && !error && (
-        <button onClick={onClose}
-          style={{width:"100%",marginTop:12,background:"none",border:"none",color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:13,cursor:"pointer",padding:"8px"}}>
-          Cancel
-        </button>
       )}
     </div>
   );
 }
-// ─── Sample Books ─────────────────────────────────────────────────────────────
-// ─── Backup Button ────────────────────────────────────────────────────────────
-function BackupBtn({onOpen}) {
-  const lb = load("lastBackup", null);
-  const stale = !lb || (Date.now() - lb > 7 * 864e5);
-  return (
-    <button onClick={onOpen} title="Backup & Restore"
-      style={{width:40,height:40,borderRadius:20,background:stale?"rgba(239,68,68,.12)":P.bgCard,border:`1px solid ${stale?"rgba(239,68,68,.4)":P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all .2s",position:"relative",flexShrink:0}}>
-      💾
-      {stale&&<span style={{position:"absolute",top:2,right:2,width:8,height:8,borderRadius:4,background:"#ef4444",border:`2px solid ${P.bg}`}}/>}
-    </button>
-  );
-}
-
-// ─── Backup & Restore ────────────────────────────────────────────────────────
-function BackupModal({books, shelves, goal, earnedAchs, onRestore, onClose}) {
-  const [restoreState, setRestoreState] = useState(null); // null | 'confirm' | 'done' | 'error'
-  const [pendingData, setPendingData]   = useState(null);
-  const [errMsg, setErrMsg]             = useState("");
-  const fileRef = useRef();
-
-  const lastBackup = load("lastBackup", null);
-  const lastBackupStr = lastBackup
-    ? new Date(lastBackup).toLocaleDateString(undefined, {month:"short",day:"numeric",year:"numeric"})
-    : "Never";
-
-  function doExport() {
-    const payload = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      books,
-      shelves,
-      goal,
-      earnedAchs,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `bookshelf-backup-${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    save("lastBackup", Date.now());
-    onClose();
-  }
-
-  function handleFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      try {
-        const data = JSON.parse(e.target.result);
-        if (!data.books || !Array.isArray(data.books)) throw new Error("Invalid backup file.");
-        setPendingData(data);
-        setRestoreState("confirm");
-      } catch(err) {
-        setErrMsg("That file doesn't look like a Bookshelf backup.");
-        setRestoreState("error");
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  function confirmRestore() {
-    onRestore(pendingData);
-    save("lastBackup", Date.now());
-    setRestoreState("done");
-  }
-
-  if (restoreState === "confirm") return (
-    <div style={{padding:"8px 0"}}>
-      <div style={{width:56,height:56,borderRadius:28,background:"rgba(99,102,241,.15)",border:`2px solid ${P.accent}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",fontSize:26}}>⚠️</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,textAlign:"center",marginBottom:8}}>Replace Library?</div>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,color:P.textLt,textAlign:"center",lineHeight:1.6,marginBottom:8}}>
-        This will replace your current library with <strong style={{color:P.accent}}>{pendingData.books.length} books</strong> from the backup.
-      </div>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,textAlign:"center",marginBottom:24}}>
-        Backed up: {new Date(pendingData.exportedAt).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
-      </div>
-      <div style={{display:"flex",gap:10}}>
-        <button onClick={confirmRestore} style={{flex:1,background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:14,padding:"14px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer",boxShadow:`0 4px 16px ${P.accentGlow}`}}>Yes, Restore</button>
-        <button onClick={()=>setRestoreState(null)} style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:14,padding:"14px 18px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>Cancel</button>
-      </div>
-    </div>
-  );
-
-  if (restoreState === "done") return (
-    <div style={{padding:"8px 0",textAlign:"center"}}>
-      <div style={{fontSize:52,marginBottom:16}}>✅</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:P.text,marginBottom:8}}>Library Restored!</div>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,color:P.textLt,marginBottom:24}}>{pendingData.books.length} books loaded from backup.</div>
-      <button onClick={onClose} style={{background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:14,padding:"14px 32px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:"pointer"}}>Done</button>
-    </div>
-  );
-
-  if (restoreState === "error") return (
-    <div style={{padding:"8px 0",textAlign:"center"}}>
-      <div style={{fontSize:52,marginBottom:16}}>❌</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,marginBottom:8}}>Couldn't Read File</div>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,color:P.muted,marginBottom:24}}>{errMsg}</div>
-      <button onClick={()=>setRestoreState(null)} style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:14,padding:"12px 28px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>Try Again</button>
-    </div>
-  );
-
-  return (
-    <div style={{padding:"8px 0"}}>
-      <div style={{textAlign:"center",marginBottom:24}}>
-        <div style={{width:56,height:56,borderRadius:28,background:"rgba(99,102,241,.15)",border:`2px solid ${P.accent}`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",fontSize:26}}>💾</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:P.text,marginBottom:4}}>Backup & Restore</div>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>Last backup: <strong style={{color:lastBackup?P.green:P.red}}>{lastBackupStr}</strong></div>
-      </div>
-
-      {/* Export */}
-      <div style={{background:P.bgSurface,borderRadius:16,padding:"18px 20px",marginBottom:12,border:`1px solid ${P.border}`}}>
-        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:12}}>
-          <div style={{fontSize:28}}>📤</div>
-          <div>
-            <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,color:P.text}}>Export Backup</div>
-            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,marginTop:2}}>Downloads a JSON file with all {books.length} books, shelves, ratings, notes & highlights</div>
-          </div>
-        </div>
-        <button onClick={doExport}
-          style={{width:"100%",background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",boxShadow:`0 4px 16px ${P.accentGlow}`}}>
-          Download Backup File
-        </button>
-      </div>
-
-      {/* Restore */}
-      <div style={{background:P.bgSurface,borderRadius:16,padding:"18px 20px",marginBottom:20,border:`1px solid ${P.border}`}}>
-        <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:12}}>
-          <div style={{fontSize:28}}>📥</div>
-          <div>
-            <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,color:P.text}}>Restore from Backup</div>
-            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,marginTop:2}}>Load a previously exported JSON backup file</div>
-          </div>
-        </div>
-        <button onClick={()=>fileRef.current?.click()}
-          style={{width:"100%",background:P.bgCard,color:P.textLt,border:`1.5px dashed ${P.border}`,borderRadius:12,padding:"13px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>
-          Choose Backup File…
-        </button>
-        <input ref={fileRef} type="file" accept=".json,application/json" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
-      </div>
-
-      {/* Tip */}
-      <div style={{background:"rgba(99,102,241,.08)",borderRadius:12,padding:"12px 16px",border:`1px solid ${P.borderAccent}`}}>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.textLt,lineHeight:1.6}}>
-          💡 <strong>Tip:</strong> Back up weekly and save the file to iCloud Drive or Google Drive so you can restore on any device.
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 function OnboardingSheet({onDone}) {
   const [step,setStep]=useState(0);
@@ -2392,9 +2410,8 @@ function App({ user }) {
   const [seriesModal,setSeriesModal]   = useState(null);
   const [customShelves,setCustomShelves] = useState(()=>load("shelves",[]));
   const [showShelves,setShowShelves]   = useState(false);
-  const [showImport,setShowImport]     = useState(false);
+  const [showDataModal,setShowDataModal] = useState(false);
   const [shelfFilter,setShelfFilter]   = useState("all");
-  const [showBackup,setShowBackup]     = useState(false);
   const [friends, setFriends] = useState(()=>load('friends',[]));
   const [pendingRequests, setPendingRequests] = useState([]);
   const [showFriends, setShowFriends] = useState(false);
@@ -2631,8 +2648,6 @@ function App({ user }) {
                 style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>
                 📂
               </button>
-              {/* Backup */}
-              <BackupBtn onOpen={()=>setShowBackup(true)}/>
               {/* User avatar / profile menu */}
               <button onClick={()=>setShowProfileMenu(true)} title={user?.displayName||user?.email||'Profile'}
                 style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0,flexShrink:0,position:"relative"}}>
@@ -2793,7 +2808,7 @@ function App({ user }) {
     </nav>
 
     {/* All modals */}
-    {showAdd        &&<Sheet onClose={()=>setShowAdd(false)}><AddModal books={books} onAdd={addBook} onClose={()=>setShowAdd(false)} onOpenImport={()=>{setShowAdd(false);setTimeout(()=>setShowImport(true),200);}}/></Sheet>}
+    {showAdd        &&<Sheet onClose={()=>setShowAdd(false)}><AddModal books={books} onAdd={addBook} onClose={()=>setShowAdd(false)}/></Sheet>}
     {selected       &&<Sheet onClose={()=>setSelected(null)} noPad><DetailModal book={selected} onClose={()=>setSelected(null)} onUpdate={b=>{updateBook(b);setSelected(null);}} onDelete={deleteBook} onLogProgress={b=>{setProgressBook(b);setSelected(null);}} onLogHighlights={b=>{setHighlightBook(b);setSelected(null);}} onLogLoan={b=>{setLoanBook(b);setSelected(null);}} onFindSeries={b=>{setSelected(null);findSeriesForBook(b);}} customShelves={customShelves}/></Sheet>}
     {showExport     &&<Sheet onClose={()=>setShowExport(false)}><WishlistExport books={books} onClose={()=>setShowExport(false)}/></Sheet>}
     {showGoalSetup  &&<Sheet onClose={()=>setShowGoalSetup(false)}><GoalSetup goal={readingGoal} onSave={setReadingGoal} onClose={()=>setShowGoalSetup(false)}/></Sheet>}
@@ -2802,12 +2817,11 @@ function App({ user }) {
     {loanBook       &&<Sheet onClose={()=>setLoanBook(null)}><LoanModal book={loanBook} onSave={b=>{updateBook(b);setLoanBook(null);}} onClose={()=>setLoanBook(null)}/></Sheet>}
     {showShelves    &&<Sheet onClose={()=>setShowShelves(false)}><ShelvesModal shelves={customShelves} onSave={s=>{setCustomShelves(s);}} onClose={()=>setShowShelves(false)}/></Sheet>}
     {seriesModal    &&<Sheet onClose={()=>setSeriesModal(null)}><SeriesModal newBook={seriesModal.newBook} seriesBooks={seriesModal.seriesBooks} onAddSelected={addSeriesBooks} onDismiss={()=>setSeriesModal(null)}/></Sheet>}
-    {showImport     &&<Sheet onClose={()=>setShowImport(false)}><CSVImportModal onImport={importBooks} onClose={()=>setShowImport(false)}/></Sheet>}
-    {showBackup     &&<Sheet onClose={()=>setShowBackup(false)}><BackupModal books={books} shelves={customShelves} goal={readingGoal} earnedAchs={earnedAchs} onRestore={restoreFromBackup} onClose={()=>setShowBackup(false)}/></Sheet>}
+    {showDataModal  &&<Sheet onClose={()=>setShowDataModal(false)}><DataModal books={books} onImport={importBooks} onRestore={books=>restoreFromBackup({books})} onClose={()=>setShowDataModal(false)}/></Sheet>}
     {showOnboarding &&<Sheet onClose={()=>{save("onboarded",true);setShowOnboarding(false);}}><OnboardingSheet onDone={()=>{save("onboarded",true);setShowOnboarding(false);}}/></Sheet>}
     {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SavedViewsModal views={savedViews} onSave={addSavedView} onDelete={deleteSavedView} currentFilters={{status:filterStatus,genre:filterGenre,shelf:shelfFilter,sort:sortBy}} onClose={()=>setShowSavedViews(false)}/></Sheet>}
     {showFriends    &&<Sheet onClose={()=>setShowFriends(false)}><FriendsScreen user={user} friends={friends} setFriends={setFriends} pendingRequests={pendingRequests} setPendingRequests={setPendingRequests} onClose={()=>setShowFriends(false)}/></Sheet>}
-    {showProfileMenu&&<ProfileMenu user={user} pendingRequests={pendingRequests} onFriends={()=>{setShowProfileMenu(false);setShowFriends(true);}} onAbout={()=>{setShowProfileMenu(false);setShowAbout(true);}} onSignOut={()=>{setShowProfileMenu(false);firebase.auth().signOut();}} onClose={()=>setShowProfileMenu(false)}/>}
+    {showProfileMenu&&<ProfileMenu user={user} pendingRequests={pendingRequests} onFriends={()=>{setShowProfileMenu(false);setShowFriends(true);}} onDataModal={()=>{setShowProfileMenu(false);setShowDataModal(true);}} onAbout={()=>{setShowProfileMenu(false);setShowAbout(true);}} onSignOut={()=>{setShowProfileMenu(false);firebase.auth().signOut();}} onClose={()=>setShowProfileMenu(false)}/>}
     {showAbout&&<Sheet onClose={()=>setShowAbout(false)}><AboutModal onClose={()=>setShowAbout(false)}/></Sheet>}
   </div>;
 }
@@ -3008,7 +3022,7 @@ function AddFriendModal({ user, friends, onClose, onRequestSent }) {
 }
 
 // ─── Profile Menu ─────────────────────────────────────────────────────────────
-function ProfileMenu({ user, pendingRequests, onFriends, onAbout, onSignOut, onClose }) {
+function ProfileMenu({ user, pendingRequests, onFriends, onDataModal, onAbout, onSignOut, onClose }) {
   const initials = (user?.displayName||user?.email||'?').slice(0,1).toUpperCase();
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
@@ -3041,6 +3055,14 @@ function ProfileMenu({ user, pendingRequests, onFriends, onAbout, onSignOut, onC
               <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>Compare libraries &amp; achievements</div>
             </div>
             {pendingRequests.length>0&&<span style={{background:"#ef4444",borderRadius:10,minWidth:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",padding:"0 5px",fontFamily:"'Nunito',sans-serif"}}>{pendingRequests.length}</span>}
+          </button>
+          <button onClick={onDataModal} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 12px",background:"none",border:"none",borderRadius:14,cursor:"pointer",textAlign:"left",color:P.text,transition:"background .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background=P.bgSurface} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span style={{fontSize:22,width:30,textAlign:"center"}}>📤</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700}}>Import / Export</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>CSV · Goodreads · StoryGraph</div>
+            </div>
           </button>
           <button onClick={onAbout} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 12px",background:"none",border:"none",borderRadius:14,cursor:"pointer",textAlign:"left",color:P.text,transition:"background .15s"}}
             onMouseEnter={e=>e.currentTarget.style.background=P.bgSurface} onMouseLeave={e=>e.currentTarget.style.background="none"}>
