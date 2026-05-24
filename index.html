@@ -202,20 +202,18 @@ const save = (k, v) => {
   }, k === 'books' ? 600 : 0);
 };
 
-// ─── Gemini API helpers ───────────────────────────────────────────────────────
-const GEMINI_MODEL = "gemini-2.0-flash";
-const geminiUrl = () => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${localStorage.getItem('bs_apiKey')||''}`;
-const hasApiKey = () => Boolean(localStorage.getItem('bs_apiKey'));
+// ─── Gemini API helpers (via Cloudflare Worker proxy) ────────────────────────
+const AI_PROXY_URL = "REPLACE_WITH_YOUR_WORKER_URL";
 
 async function geminiText(prompt, maxTokens=5000) {
-  const r = await fetch(geminiUrl(), {method:"POST",headers:{"Content-Type":"application/json"},
+  const r = await fetch(AI_PROXY_URL, {method:"POST",headers:{"Content-Type":"application/json"},
     body: JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})});
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
   return d?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 async function geminiVision(b64, mimeType, prompt, maxTokens=400) {
-  const r = await fetch(geminiUrl(), {method:"POST",headers:{"Content-Type":"application/json"},
+  const r = await fetch(AI_PROXY_URL, {method:"POST",headers:{"Content-Type":"application/json"},
     body: JSON.stringify({contents:[{parts:[{inlineData:{mimeType,data:b64}},{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})});
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
@@ -812,7 +810,6 @@ function CoverScanner({onDetected,onClose}) {
     if(!file)return;setBusy(true);setMsg("Identifying cover with AI…");
     try{
       const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(file);});
-      if(!hasApiKey()){setMsg("API key not set — tap ⚙️ in the header to add your Gemini API key.");setBusy(false);return;}
       const txt=await geminiVision(b64,"image/jpeg",'Identify this book cover. Respond ONLY with JSON (no markdown): {"title":"","author":"","isbn":"","language":"en"}. Language should be the 2-letter ISO code of the book\'s text. If unidentifiable: {"error":"..."}',400);
       const result=JSON.parse(txt.replace(/```json|```/g,"").trim());
       if(result.error){setMsg("Couldn't identify — try a clearer photo.");setBusy(false);return;}
@@ -1258,8 +1255,8 @@ function SuggestScreen({books,onAddWishlist}) {
   const [sel,setSel]=useState(null),[shareOpen,setShareOpen]=useState(false),[gen,setGen]=useState(false);
   const [moodMode,setMoodMode]=useState(false),[mood,setMood]=useState("");
   const owned=books.filter(b=>["read","owned","reading"].includes(b.status));
-  async function generate(){if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your free Gemini API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
-  async function generateMood(){if(!mood.trim())return;if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your free Gemini API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
+  async function generate(){setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
+  async function generateMood(){if(!mood.trim())return;setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   function shareText(){
     const body=sugs.slice(0,5).map((b,i)=>`${i+1}. ${b.title} by ${b.authors?.[0]} ${pLinks(b).amazon}`).join("\n")+"\n(more in Bookshelf)";
     nativeShare("My Book Suggestions",body,()=>window.open(`sms:?&body=${encodeURIComponent(body)}`));
@@ -1939,7 +1936,6 @@ function App({ user }) {
   const [showImport,setShowImport]     = useState(false);
   const [shelfFilter,setShelfFilter]   = useState("all");
   const [showBackup,setShowBackup]     = useState(false);
-  const [showSettings,setShowSettings] = useState(false);
   const [savedViews,setSavedViews]     = useState(()=>load("savedViews",[]));
   const [activeView,setActiveView]     = useState(null);
   const [showSavedViews,setShowSavedViews] = useState(false);
@@ -2102,11 +2098,6 @@ function App({ user }) {
               </button>
               {/* Backup */}
               <BackupBtn onOpen={()=>setShowBackup(true)}/>
-              {/* Settings */}
-              <button onClick={()=>setShowSettings(true)} title="Settings"
-                style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>
-                ⚙️
-              </button>
               {/* User avatar / sign out */}
               <button onClick={()=>firebase.auth().signOut()} title={`Sign out (${user?.displayName||user?.email||''})`}
                 style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0,flexShrink:0}}>
@@ -2251,7 +2242,6 @@ function App({ user }) {
     {showBackup     &&<Sheet onClose={()=>setShowBackup(false)}><BackupModal books={books} shelves={customShelves} goal={readingGoal} earnedAchs={earnedAchs} onRestore={restoreFromBackup} onClose={()=>setShowBackup(false)}/></Sheet>}
     {showOnboarding &&<Sheet onClose={()=>{save("onboarded",true);setShowOnboarding(false);}}><OnboardingSheet onDone={()=>{save("onboarded",true);setShowOnboarding(false);}}/></Sheet>}
     {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SavedViewsModal views={savedViews} onSave={addSavedView} onDelete={deleteSavedView} currentFilters={{status:filterStatus,genre:filterGenre,shelf:shelfFilter,sort:sortBy}} onClose={()=>setShowSavedViews(false)}/></Sheet>}
-    {showSettings   &&<Sheet onClose={()=>setShowSettings(false)}><SettingsModal onClose={()=>setShowSettings(false)}/></Sheet>}
   </div>;
 }
 
@@ -2262,40 +2252,6 @@ function LoadingScreen() {
     <div style={{minHeight:"100vh",background:DARK.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:20}}>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:36,fontWeight:900,color:DARK.text,letterSpacing:-.5}}>Bookshelf</div>
       <div style={{width:36,height:36,border:`3px solid ${DARK.accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
-    </div>
-  );
-}
-
-function SettingsModal({onClose}) {
-  const [key,setKey] = useState(localStorage.getItem('bs_apiKey')||'');
-  const [saved,setSaved] = useState(false);
-  function save() {
-    localStorage.setItem('bs_apiKey', key.trim());
-    setSaved(true);
-    setTimeout(()=>setSaved(false),2000);
-  }
-  return (
-    <div style={{padding:"4px 0"}}>
-      <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,margin:"0 0 16px"}}>⚙️ Settings</h3>
-      <div style={{background:P.bgSurface,borderRadius:14,padding:"16px",border:`1px solid ${P.border}`,marginBottom:16}}>
-        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,margin:"0 0 4px"}}>Google Gemini API Key</p>
-        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,lineHeight:1.5,margin:"0 0 12px"}}>Required for Cover Photo scan and AI Suggestions. Free — no credit card needed. Get a key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{color:P.accent}}>aistudio.google.com</a>.</p>
-        <input
-          type="password"
-          value={key}
-          onChange={e=>setKey(e.target.value)}
-          placeholder="sk-ant-…"
-          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${P.border}`,background:P.bgCard,color:P.text,fontFamily:"'Nunito',sans-serif",fontSize:13,boxSizing:"border-box",outline:"none"}}
-        />
-      </div>
-      <div style={{display:"flex",gap:10}}>
-        <button onClick={save} style={{flex:1,padding:"11px",borderRadius:12,background:saved?"#10b981":P.accent,color:"#fff",border:"none",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",transition:"background .2s"}}>
-          {saved?"✓ Saved":"Save"}
-        </button>
-        <button onClick={onClose} style={{flex:1,padding:"11px",borderRadius:12,background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>
-          Close
-        </button>
-      </div>
     </div>
   );
 }
