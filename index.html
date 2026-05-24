@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v18';
+const CACHE='bookshelf-v19';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -90,7 +90,13 @@ self.addEventListener('fetch',e=>{
   const noCache=url.pathname.endsWith('manifest.json');
   const skip=['openlibrary.org','googleapis.com','fonts.gstatic.com','amazon.com','barnesandnoble.com','halfpricebooks.com','workers.dev'].some(h=>url.hostname.includes(h));
   if(skip||noCache||e.request.method!=='GET')return;
-  e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{if(e.request.mode==='navigate')return caches.match('/bookshelf-app/');});}));
+  // Navigation (HTML page): always try network first so new deploys load immediately
+  if(e.request.mode==='navigate'){
+    e.respondWith(fetch(e.request).then(res=>{if(res&&res.status===200){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>caches.match(e.request).then(r=>r||caches.match('/bookshelf-app/'))));
+    return;
+  }
+  // Static assets: cache-first for speed
+  e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{});}));
 });`;
     try{
       const blob=new Blob([SW],{type:'application/javascript'});
@@ -625,8 +631,14 @@ function pLinks(book) {
   };
 }
 function extractSeries(book) {
-  const m=book.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i);
-  if(m) return m[1].trim();
+  // Parenthetical: "Title (Series Name, #N)" or "Title (Series Name)"
+  const paren=book.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i);
+  if(paren) return paren[1].trim();
+  // OL dash format: "Franchise - Series - Title" → everything before last segment is series
+  const parts=book.title.split(/\s*[-–]\s*/);
+  if(parts.length>=3) return parts.slice(0,-1).join(" - ").trim();
+  if(parts.length===2&&parts[0].trim().split(" ").length<=6) return parts[0].trim();
+  // Subtitle clue
   if(book.subtitle){const s=book.subtitle.match(/^([^:,]+?)(?:\s+(?:novel|book|volume|series))?$/i);if(s&&s[1].split(" ").length<=5)return s[1].trim();}
   return null;
 }
@@ -669,8 +681,8 @@ async function fetchSeriesTitles(book, existingBooks=[]) {
       // Exclude if the last dash-segment matches the scanned book's title
       const dashParts=b.title.split(/\s*[-–]\s*/);
       if(dashParts.length>1&&exTitles.has(dashParts[dashParts.length-1].toLowerCase().trim()))return false;
-      // Relax author filter for AI-detected series (multi-author series)
-      if(!aiSeries&&(b.authors?.[0]||"").split(" ").pop().toLowerCase()!==aLast) return false;
+      // Relax author filter whenever series name is known — series often have multiple authors
+      if(!sn&&(b.authors?.[0]||"").split(" ").pop().toLowerCase()!==aLast) return false;
       if(b.language && b.language !== bookLang) return false;
       if(sLow&&seriesTok.size>0){
         const titleTok=tok(b.title);
