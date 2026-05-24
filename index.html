@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v19';
+const CACHE='bookshelf-v20';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -2233,14 +2233,19 @@ function App({ user }) {
     showToast("📚 Checking for series…");
     try {
       const st=await fetchSeriesTitles(book, currentBooks||books);
-      if(!st.length)return;
+      if(!st.length){showToast("ℹ️ No series found");return;}
       setBooks(prev=>{
         const exIds=new Set(prev.map(b=>b.id)),exT=new Set(prev.map(b=>b.title.toLowerCase()));
         const newOnes=st.filter(sb=>!exIds.has(sb.id)&&!exT.has(sb.title.toLowerCase()));
-        if(newOnes.length>0) setTimeout(()=>setSeriesModal({newBook:book,seriesBooks:newOnes}),400);
+        if(newOnes.length>0){
+          showToast(`📚 Found ${newOnes.length} series book${newOnes.length!==1?"s":""}!`);
+          setTimeout(()=>setSeriesModal({newBook:book,seriesBooks:newOnes}),400);
+        } else {
+          showToast("ℹ️ All series books already in library");
+        }
         return prev;
       });
-    } catch(e){console.error("fetchSeriesTitles error:",e);}
+    } catch(e){console.error("fetchSeriesTitles error:",e);showToast("⚠️ Series check failed: "+e.message);}
   }
   function addSeriesBooks(sel){
     if(!sel.length)return;
