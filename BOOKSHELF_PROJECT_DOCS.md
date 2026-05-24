@@ -2,17 +2,18 @@
 
 **Last Updated:** May 23, 2026
 **Current File:** `index.html` (self-contained PWA — React via CDN, no build step)
-**Project Type:** Mobile-first book tracker, deployed as a PWA installable on iPhone
-**Ultimate Goal:** Native iOS app via Capacitor
+**Project Type:** Mobile-first book tracker — deployed as a web app with cloud sync
+**Ultimate Goal:** Best-in-class personal reading tracker, web-first with optional native iOS packaging later
 **Service Worker:** bookshelf-v14
+**Live URL:** https://bensim123.github.io/bookshelf-app
 
 -----
 
 ## 1. Project Overview
 
-A personal book library tracker for iOS. Catalog every book you own, add them via barcode scan, cover photo AI recognition, or manual search. Track reading progress, personal notes, highlights, loans, and format (physical/ebook/audiobook). Includes gamification (XP, levels, 39 achievements), AI-powered suggestions, stats, saved filter views, and backup/restore.
+A personal book library tracker that runs as a web app with cloud sync. Catalog every book you own, add them via barcode scan, cover photo AI recognition, or manual search. Track reading progress, personal notes, highlights, loans, and format (physical/ebook/audiobook). Includes gamification (XP, levels, 39 achievements), AI-powered suggestions, stats, saved filter views, and backup/restore.
 
-The prototype runs as a PWA in Safari. Deploy to Netlify or GitHub Pages, install to home screen — it feels like a native app.
+Hosted on GitHub Pages. Sign in with Google — your library is private and syncs across all your devices via Firebase Firestore. Install to iPhone home screen from Safari for a native app feel.
 
 -----
 
@@ -28,7 +29,9 @@ The prototype runs as a PWA in Safari. Deploy to Netlify or GitHub Pages, instal
 |Barcode Scanning|ZXing (`@zxing/browser@0.1.5` via jsDelivr)|Dynamically imported, rear camera|
 |Cover AI Recognition|Claude API (`claude-sonnet-4-20250514`)|Photo → JSON {title, author, isbn, language}|
 |AI Suggestions|Claude API (`claude-sonnet-4-20250514`)|25 personalized or 8 mood-based suggestions|
-|State|React `useState` + `localStorage`|Full persistence — books, shelves, goal, achievements, saved views, backup timestamp|
+|Auth|Firebase Authentication|Google Sign-In; `onAuthStateChanged` drives Root component state machine|
+|Storage|Firebase Firestore|Per-user document `users/{uid}`; debounced writes (600ms for books, immediate for other keys)|
+|Theme|`localStorage` (`bs_theme`)|Kept local for instant pre-auth application; not synced to Firestore|
 |PWA|Inline service worker (blob URL)|Caches React + Babel; version-bumped on each deploy|
 
 -----
@@ -233,18 +236,27 @@ Sheets (bottom-sheet modals):
 
 **39 Achievements** across 6 categories: Reading, Library, Depth, Explore, Goals, Format. Format category (14 badges) covers audiobook milestones, ebook milestones, cross-format combos, and physical binding collection. All helper functions (`readBy`, `ownBy`, `ownByBinding`, `totalAudioMinutes`, `hasDualFormat`, `hasTripleFormat`) operate on non-wishlist books.
 
-### localStorage Keys
+### Firestore Document Structure
+
+Each user has a single document at `users/{uid}` with these fields:
+
+| Field | Contents |
+|-------|----------|
+| `books` | Full book array |
+| `goal` | Reading goal number |
+| `shelves` | Custom shelf names array |
+| `achievements` | Array of earned achievement IDs |
+| `savedViews` | Array of saved filter view objects |
+| `lastBackup` | Timestamp of last JSON backup export |
+| `onboarded` | Boolean — onboarding shown |
+
+**localStorage** (device-only, not synced):
 
 | Key | Contents |
 |-----|----------|
-| `bs_books` | Full book array |
-| `bs_goal` | Reading goal number |
-| `bs_shelves` | Custom shelf names array |
-| `bs_theme` | `"dark"` or `"light"` |
-| `bs_achievements` | Array of earned achievement IDs |
-| `bs_savedViews` | Array of saved filter view objects |
-| `bs_lastBackup` | Timestamp of last JSON backup export |
-| `bs_onboarded` | Boolean — onboarding shown |
+| `bs_theme` | `"dark"` or `"light"` — applied before auth to prevent flash |
+
+**Module-level cache:** `_userCache` is populated from Firestore on sign-in and updated synchronously on every `save()` call. `load()` reads from cache after auth so all code that calls `load()` works synchronously.
 
 -----
 
@@ -254,7 +266,40 @@ Sheets (bottom-sheet modals):
 
 See earlier doc versions. Key features built: barcode/cover/search add, detail modal, reading progress, highlights, loan tracker, custom shelves, series modal, stats screen, mood suggestions, achievements (24), XP system, light/dark theme, Goodreads CSV import, Saved Views, backup/restore, offline banner, onboarding.
 
-### Session 12 — Today's Work (May 23, 2026)
+### Session 13 — Today's Work (May 23, 2026)
+
+**Cloud Sync + Auth (Firebase)**
+- Replaced localStorage persistence with Firebase Firestore + Google Sign-In
+- Chose Firebase over Supabase: Supabase pauses free-tier projects after 7 days of inactivity; Firebase free tier has no such limitation
+- `Root` component: auth state machine (`loading → unauthenticated → authenticated`) wraps the whole app
+- `AuthScreen`: Google Sign-In button shown when unauthenticated
+- `LoadingScreen`: shown while Firebase resolves auth state on startup
+- `_userDocRef` / `_userCache` module-level vars; `load()` reads from cache synchronously; `save()` writes to cache immediately and debounces Firestore write (600ms for books, immediate for other keys)
+- `beforeunload` event flushes any pending Firestore writes
+- Theme (`bs_theme`) kept in localStorage only — applied before auth resolves to prevent flash
+- User avatar button in header → sign out
+- New user documents seeded with default shape on first sign-in
+- Firebase compat SDK (v10.12.0) loaded via CDN — works with non-module `<script>` tags
+
+**Responsive Layout**
+- `.app-inner` CSS class constrains content to 540px max-width on wide screens (desktop/tablet)
+- `.sheet-inner` applies same constraint inside bottom-sheet modals
+- Nav bar inner content also width-constrained via `.app-inner`
+
+**Bug Fixes**
+- Fixed pre-existing JSX parse error in `StatsScreen` recap card block — extra `</div>` was closing the root div 80 lines early, causing blank screen
+- Fixed `useState is not defined` ReferenceError — React UMD exposes hooks as `React.useState` etc., not bare globals; added explicit destructuring at top of Babel script: `const { useState, useEffect, useMemo, useCallback, useRef } = React;`
+
+**Infrastructure**
+- Initialized git repo, created `bookshelf-app` GitHub repository
+- PR #1: fixed icon filename mismatch in `manifest.json` and `DEPLOY_README.md`
+- PR #2: Firebase auth + Firestore sync (this branch: `feature/firebase-auth-and-cloud-sync`)
+- Hosted on GitHub Pages from `feature/firebase-auth-and-cloud-sync` branch
+- Live URL: https://bensim123.github.io/bookshelf-app
+
+---
+
+### Session 12 — (May 23, 2026)
 
 **Persistence Decision**
 - Confirmed localStorage persistence was already working correctly
@@ -338,7 +383,7 @@ See earlier doc versions. Key features built: barcode/cover/search add, detail m
 |OL cover placeholder images|Minor|OL returns 1×1px for missing covers — cover picker's `useCoverValid` filters these|
 |audiobook total time|UX|User must manually enter total minutes — not auto-fetched from OL|
 |Series detection accuracy|Minor|Works well for `(Series, #N)` titles; less reliable for unnumbered series|
-|Cross-device sync|Future|localStorage only — clears if Safari data cleared; backup/restore is the mitigation|
+|Cross-device sync|Resolved|Firebase Firestore — library syncs across all devices; sign in with Google|
 
 -----
 
@@ -346,16 +391,17 @@ See earlier doc versions. Key features built: barcode/cover/search add, detail m
 
 ### Ready to Build (Next Session)
 
-- [ ] **Capacitor iOS wrap** — `npx cap init`, `npx cap add ios`, `npx cap sync`, open in Xcode
-- [ ] **CloudKit sync** (after Capacitor) — replace localStorage with CloudKit private database via Swift bridge
+- [ ] **Audiobook total time auto-fetch** — Audible/LibriVox API or AI estimation
+- [ ] **Reading challenges** — custom goals beyond yearly count (e.g. "read 5 sci-fi this month")
+- [ ] **Bulk edit** — select multiple books, change status/shelf/format in one action
+- [ ] **Push notifications** — reading reminders (web push via Firebase Cloud Messaging)
+
+### Future / Native Path
+
+- [ ] **Capacitor iOS wrap** — `npx cap init`, `npx cap add ios`, see `Bookshelf_iOS_Distribution_Guide.md`
 - [ ] **Native barcode scanner** — swap ZXing for `@capacitor-mlkit/barcode-scanning` (faster, torch support)
-
-### Needs Backend / Native
-
 - [ ] **Haptic feedback** — `@capacitor/haptics` after Capacitor setup
-- [ ] **Push notifications** — reading reminders via `@capacitor/push-notifications`
 - [ ] **iOS Home Screen Widget** — WidgetKit, Swift only
-- [ ] **Book clubs / shared lists** — requires user accounts + backend
 - [ ] **Live pricing** — ISBNdb ($9.99/mo) is most reliable; "Check Price" deep links already implemented
 
 ### Nice to Have
@@ -375,15 +421,23 @@ See earlier doc versions. Key features built: barcode/cover/search add, detail m
 |`manifest.json`|PWA metadata (name, icons, display mode, theme colors)|
 |`icon192.png`|App icon 192×192|
 |`icon512.png`|App icon 512×512|
-|`BOOKSHELF_PROJECT_DOCS.md`|This file|
-|`DEPLOY_README.md`|Step-by-step Netlify + iPhone deploy instructions|
+|`README.md`|GitHub repo README — features, tech stack, setup|
+|`BOOKSHELF_PROJECT_DOCS.md`|This file — full technical documentation|
+|`DEPLOY_README.md`|Step-by-step GitHub Pages + iPhone deploy instructions|
+|`Bookshelf_iOS_Distribution_Guide.md`|Guide for future Capacitor/TestFlight iOS packaging|
 
 -----
 
 ## 12. How to Resume in a New Session
 
-> "I'm continuing work on my Bookshelf iOS book tracker PWA. Please read the project documentation file, then I'll share the current `index.html` source so we can continue."
+> "I'm continuing work on my Bookshelf web app. Please read `BOOKSHELF_PROJECT_DOCS.md` first so you have full context, then read `index.html` so we can continue."
 
-Share `BOOKSHELF_PROJECT_DOCS.md` first, then `index.html`.
+The app is live at https://bensim123.github.io/bookshelf-app (GitHub Pages, `feature/firebase-auth-and-cloud-sync` branch).
 
-The app currently runs at SW v14. All features are in the single `index.html` — no build step required.
+Key facts for a new session:
+- All features are in the single `index.html` — no build step
+- SW v14; Firebase auth + Firestore sync added in Session 13
+- React hooks must be destructured explicitly: `const { useState, useEffect, ... } = React;`
+- Firebase compat SDK (not modular) — use `firebase.auth()`, `firebase.firestore()` etc.
+- `_userCache` / `_userDocRef` are module-level vars set by `Root` component on sign-in
+- PR #1 (icon fix) and PR #2 (Firebase) are open on GitHub — both unmerged as of Session 13

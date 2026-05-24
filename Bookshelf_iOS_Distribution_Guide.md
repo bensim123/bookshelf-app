@@ -1,5 +1,9 @@
 # 📱 Bookshelf — Native iOS/iPadOS/macOS Distribution Guide
 
+> **Note (May 2026):** The app is currently web-first, hosted on GitHub Pages with Firebase auth and Firestore sync. Users can install it to their iPhone home screen directly from Safari without any native packaging. This guide covers the optional future path of wrapping the app in Capacitor for App Store / TestFlight distribution. The web version is the active deployment — only follow this guide if you specifically want a native iOS binary.
+
+---
+
 **Goal:** Package the Bookshelf PWA as a real native app using Capacitor, then share it with a few testers via TestFlight — no App Store submission required for external testing.
 
 **Time to complete:** ~3–4 hours the first time  
