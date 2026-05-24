@@ -642,73 +642,23 @@ function extractSeries(book) {
   if(book.subtitle){const s=book.subtitle.match(/^([^:,]+?)(?:\s+(?:novel|book|volume|series))?$/i);if(s&&s[1].split(" ").length<=5)return s[1].trim();}
   return null;
 }
-// existingBooks: full library so we can exclude already-added titles (any status)
+// Ask AI for the complete series book list, then enrich each with real covers/ISBNs
 async function fetchSeriesTitles(book, existingBooks=[]) {
-  let sn=extractSeries(book);
   const author=book.authors?.[0]||"";
-  if(!sn&&!author) return [];
-  // If the title has no parenthetical series hint, ask AI — series may have multiple authors
-  let aiSeries=false;
-  if(!sn) {
-    try {
-      const raw=await aiText(
-        `What series is the book "${book.title}" by ${author} part of? Reply with ONLY the series name and nothing else (e.g. "Harry Potter", "Dune", "Legacy of the Force"). If it is a standalone novel, reply "none".`,
-        40
-      );
-      const s=raw.trim().replace(/["""'']/g,"").split("\n")[0].trim();
-      if(s&&s.toLowerCase()!=="none"&&s.toLowerCase()!=="standalone"&&s.split(" ").length<=8){
-        sn=s; aiSeries=true;
-      }
-    } catch {}
-  }
-  if(!sn&&!author) return [];
-  // Exclude: scanned book itself + any book already in library (any status incl. wishlist)
-  const exTitles = new Set([book.title.toLowerCase(), ...existingBooks.map(b=>b.title.toLowerCase())]);
-  const exIds    = new Set([book.id, ...existingBooks.map(b=>b.id)]);
-  const bookLang = book.language || "en";
-  // Preferred binding for physical books; "unknown" means no preference
-  const preferredBinding = book.bookFormat==="physical" ? (book.bookBinding||"unknown") : null;
+  if(!book.title) return [];
+  const exTitles=new Set([book.title.toLowerCase(),...existingBooks.map(b=>b.title.toLowerCase())]);
   try {
-    const res = await olSearch(sn ? `${sn}` : `${book.title} ${author}`, 32, bookLang);
-    const aLast=author.split(" ").pop().toLowerCase(), sLow=sn?.toLowerCase()||"";
-    const stop=new Set(["the","a","an","of","and","in","to","for","with","star","wars"]);
-    const tok=t=>new Set(t.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(" ").filter(w=>w.length>3&&!stop.has(w)));
-    const seriesTok=tok(sLow);
-    const matched = res.filter(b=>{
-      if(exIds.has(b.id)) return false;
-      if(exTitles.has(b.title.toLowerCase())) return false;
-      // OL sometimes prefixes the full series: "Star Wars - Legacy of the Force - Invincible"
-      // Exclude if the last dash-segment matches the scanned book's title
-      const dashParts=b.title.split(/\s*[-–]\s*/);
-      if(dashParts.length>1&&exTitles.has(dashParts[dashParts.length-1].toLowerCase().trim()))return false;
-      // Relax author filter whenever series name is known — series often have multiple authors
-      if(!sn&&(b.authors?.[0]||"").split(" ").pop().toLowerCase()!==aLast) return false;
-      if(b.language && b.language !== bookLang) return false;
-      if(sLow&&seriesTok.size>0){
-        const titleTok=tok(b.title);
-        // Match: series key words appear in OL title (handles "Star Wars - Legacy of the Force - X")
-        if([...seriesTok].some(w=>titleTok.has(w)))return true;
-        // Match: parenthetical format "(Legacy of the Force, #N)"
-        const bp=b.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i)?.[1]?.toLowerCase()||"";
-        if(bp){const bpTok=tok(bp);if([...seriesTok].some(w=>bpTok.has(w)))return true;}
-      }
-      // Fallback: title word overlap with scanned book
-      return [...tok(b.title)].some(w=>tok(book.title).has(w));
-    }).slice(0,15);
-    // If we have a binding preference and a workKey, upgrade each result's cover/ISBN
-    // to match the preferred binding via edition lookup (parallel, best-effort)
-    if(preferredBinding && preferredBinding!=="unknown") {
-      const upgraded = await Promise.all(matched.map(async b=>{
-        if(!b.id||b.id.includes("-")) return b; // no work key
-        const ed = await fetchEditionForBinding(`/works/${b.id}`, preferredBinding);
-        if(!ed?.isbn) return b;
-        const cover = `https://covers.openlibrary.org/b/isbn/${ed.isbn}-L.jpg`;
-        const candidates = [cover, ...(b.coverCandidates||[]).filter(c=>c!==cover)];
-        return {...b, isbn13:ed.isbn.length===13?ed.isbn:b.isbn13, isbn10:ed.isbn.length===10?ed.isbn:b.isbn10, cover, coverCandidates:candidates, bookBinding:ed.binding};
-      }));
-      return upgraded;
-    }
-    return matched;
+    const prompt=`The book "${book.title}" by ${author} — if it is part of a series, list ALL the other books in that same series (do NOT include "${book.title}" itself). If it is a standalone novel with no series, return an empty array.
+Reply ONLY with a JSON array, no markdown fences:
+[{"title":"","author":"","year":""}]`;
+    const raw=(await aiText(prompt,1200)).replace(/```json|```/g,"").trim();
+    const match=raw.match(/\[[\s\S]*\]/);
+    if(!match) return [];
+    const items=JSON.parse(match[0]).filter(b=>b.title&&!exTitles.has(b.title.toLowerCase())).slice(0,12);
+    if(!items.length) return [];
+    const base=items.map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||author],cover:null,isbn13:"",isbn10:"",status:"suggestion"}));
+    const enriched=await Promise.allSettled(base.map(b=>enrichSuggestion(b)));
+    return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
   } catch { return []; }
 }
 async function aiSuggest(books) {
@@ -2280,6 +2230,7 @@ function App({ user }) {
       return currentBooks;
     });
     if(isUpgrade){showToast("📖 Moved from Wishlist to Library!");return;}
+    showToast("📚 Checking for series…");
     try {
       const st=await fetchSeriesTitles(book, currentBooks||books);
       if(!st.length)return;
@@ -2289,7 +2240,7 @@ function App({ user }) {
         if(newOnes.length>0) setTimeout(()=>setSeriesModal({newBook:book,seriesBooks:newOnes}),400);
         return prev;
       });
-    } catch{}
+    } catch(e){console.error("fetchSeriesTitles error:",e);}
   }
   function addSeriesBooks(sel){
     if(!sel.length)return;
