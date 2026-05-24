@@ -2239,7 +2239,7 @@ function LoadingScreen() {
   );
 }
 
-function AuthScreen() {
+function AuthScreen({ dbError }) {
   const [busy,setBusy] = useState(false);
   const [err,setErr]   = useState(null);
 
@@ -2252,6 +2252,14 @@ function AuthScreen() {
       setBusy(false);
     }
   }
+
+  const dbMsg = dbError
+    ? (dbError.includes('permission') || dbError.includes('PERMISSION')
+        ? "Database access denied — Firestore rules not set up yet."
+        : dbError.includes('not-found') || dbError.includes('unavailable')
+          ? "Database not found — Firestore may not be enabled yet."
+          : `Database error: ${dbError}`)
+    : null;
 
   return (
     <div style={{minHeight:"100vh",background:DARK.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'Nunito',sans-serif"}}>
@@ -2269,7 +2277,8 @@ function AuthScreen() {
           </svg>
           {busy ? "Signing in…" : "Sign in with Google"}
         </button>
-        {err && <p style={{fontSize:13,color:DARK.red,marginTop:14}}>{err}</p>}
+        {dbMsg && <p style={{fontSize:13,color:"#ef4444",marginTop:14,lineHeight:1.5}}>{dbMsg}<br/><span style={{opacity:.7}}>Check the browser console for details.</span></p>}
+        {err && <p style={{fontSize:13,color:"#ef4444",marginTop:14}}>{err}</p>}
       </div>
     </div>
   );
@@ -2278,12 +2287,13 @@ function AuthScreen() {
 function Root() {
   const [authState,setAuthState] = useState('loading');
   const [user,setUser]           = useState(null);
+  const [dbError,setDbError]     = useState(null);
 
   useEffect(() => {
     return firebase.auth().onAuthStateChanged(async firebaseUser => {
       if (!firebaseUser) {
         _userDocRef = null; _userCache = null;
-        setUser(null); setAuthState('unauthenticated');
+        setUser(null); setDbError(null); setAuthState('unauthenticated');
         return;
       }
       try {
@@ -2297,13 +2307,14 @@ function Root() {
         setAuthState('authenticated');
       } catch(e) {
         console.error("Failed to load user data:", e);
+        setDbError(e.code || e.message || 'unknown error');
         setAuthState('unauthenticated');
       }
     });
   }, []);
 
-  if (authState === 'loading')          return <LoadingScreen/>;
-  if (authState === 'unauthenticated')  return <AuthScreen/>;
+  if (authState === 'loading') return <LoadingScreen/>;
+  if (authState === 'unauthenticated') return <AuthScreen dbError={dbError}/>;
   return <App user={user}/>;
 }
 
