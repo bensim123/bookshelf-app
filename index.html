@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v22';
+const CACHE='bookshelf-v23';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v21 ok');
+        console.log('SW v23 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -589,7 +589,25 @@ function _mergeSug(sug,real){
     pages:real.pages||sug.pages||"",publisher:real.publisher||sug.publisher||""};
 }
 
-// Multi-source ISBN lookup: OL → OL(alt format) → Google Books → plain-text → AI bridge
+// Silent B&N ISBN lookup — tries B&N's product search; fails quietly on CORS or error
+async function _bnByISBN(isbn) {
+  try{
+    const r=await fetch(`https://www.barnesandnoble.com/search/api/v1/product/search?store=BNTB&q=isbn%3A${isbn}&ean=${isbn}`,{signal:AbortSignal.timeout?AbortSignal.timeout(5000):undefined});
+    if(!r.ok)return null;
+    const d=await r.json();
+    const item=d?.results?.[0]; if(!item?.productDisplayName)return null;
+    const i13=isbn.length===13?isbn:""; const i10=isbn.length===10?isbn:"";
+    const cover=item.imageUrl?item.imageUrl.replace("http:","https:"):null;
+    return{id:isbn,title:item.productDisplayName,subtitle:"",authors:item.contributors?.map(c=>c.name)||["Unknown Author"],
+      cover,coverCandidates:cover?[cover]:[],genre:item.classificationName||"",categories:item.classificationName?[item.classificationName]:[],
+      year:item.publicationDate?.slice(0,4)||"",publishedDate:item.publicationDate||"",publisher:item.publisher||"",pages:item.pageCount?.toString()||"",
+      description:item.description||"",language:"en",isbn13:i13,isbn10:i10,
+      averageRating:item.avgRating||0,ratingsCount:item.ratingCount||0,previewLink:`https://www.barnesandnoble.com/w/isbn/${isbn}`,
+      status:"owned",rating:0,notes:"",addedAt:Date.now(),bookFormat:"physical",bookBinding:"unknown",customShelves:[],readDates:[],highlights:[]};
+  }catch{return null;}
+}
+
+// Multi-source ISBN lookup: OL → OL(alt format) → Google Books → plain-text → B&N → AI bridge
 async function fetchByISBN(isbn) {
   isbn=isbn.replace(/[^0-9X]/gi,"").trim();
   if(!isbn)return null;
@@ -607,6 +625,9 @@ async function fetchByISBN(isbn) {
     const gbPlain=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(isbn)}&maxResults=1`);
     if(gbPlain.ok){const d=await gbPlain.json();const p=d.items?.[0]?parseGoogleVolume(d.items[0]):null;if(p)return p;}
   }catch{}
+  // Barnes & Noble silent check
+  const bn1=await _bnByISBN(isbn); if(bn1)return bn1;
+  if(alt){const bn2=await _bnByISBN(alt);if(bn2)return bn2;}
   // AI bridge: ask Groq to identify the book by ISBN, then do a real title search
   try{
     const raw=await aiText(
@@ -1092,7 +1113,7 @@ function SearchPanel({onAdd}) {
   if(coverPickFor) return <CoverPickerModal book={coverPickFor} onSelect={url=>{const updated={...coverPickFor,cover:url};if(pendingBook){onAdd(updated);}else{setRes(r=>r.map(b=>b.id===coverPickFor.id?{...b,cover:url}:b));} setCoverPickFor(null);setPendingBook(null);}} onClose={()=>{setCoverPickFor(null);setPendingBook(null);}}/>;
   return <div>
     <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" autoFocus style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
-    {err&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.6}}>{err}{errIsbn&&<><br/><a href={`https://www.barnesandnoble.com/s/${errIsbn}`} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:700}}>🔗 Search Barnes &amp; Noble for this ISBN</a></>}</div>}
+    {err&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.6}}>{err}</div>}
     {busy&&<div style={{textAlign:"center",padding:"24px 0",color:P.muted,fontFamily:"'Nunito',sans-serif"}}>Searching…</div>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>{res.map(book=><div key={book.id} style={{display:"flex",gap:12,padding:"11px 12px",background:P.bgCard,borderRadius:12,border:`1px solid ${P.border}`,transition:"border-color .15s,background .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=P.bgSurface;e.currentTarget.style.borderColor=P.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=P.bgCard;e.currentTarget.style.borderColor=P.border;}}>
       {/* Cover thumbnail — tap to pick different cover */}
@@ -1114,16 +1135,184 @@ function SearchPanel({onAdd}) {
     </div>)}</div>
   </div>;
 }
-function AddModal({onAdd,onClose,onOpenImport}) {
+// ─── Shop Checker ─────────────────────────────────────────────────────────────
+// Quick "do I already own this?" lookup for use while shopping in-store or online
+function ShopCheckModal({books,onAdd,onClose}) {
+  const [mode,setMode]=useState(null); // null | 'barcode' | 'search' | 'loading'
+  const [q,setQ]=useState("");
+  const [result,setResult]=useState(null); // {owned:bool, libraryBook?, externalBook?}
+  const [err,setErr]=useState("");
+
+  function checkLibrary(book) {
+    if(!book) return null;
+    const isbn13=book.isbn13||""; const isbn10=book.isbn10||"";
+    return books.find(b=>
+      (isbn13&&(b.isbn13===isbn13||b.isbn10===isbn13))||
+      (isbn10&&(b.isbn13===isbn10||b.isbn10===isbn10))||
+      b.title.toLowerCase()===book.title.toLowerCase()
+    )||null;
+  }
+
+  async function lookup(query) {
+    setMode("loading"); setErr(""); setResult(null);
+    const clean=query.replace(/[^0-9X]/gi,"");
+    const isISBN=/^\d{13}$/.test(clean)||/^\d{10}$/.test(clean)||/^\d{9}X$/i.test(clean);
+    try {
+      let ext=null;
+      if(isISBN){ext=await fetchByISBN(clean);}
+      if(!ext){const r=await olSearch(query,1,null);ext=r?.[0]||null;}
+      if(!ext){
+        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=1`).catch(()=>null);
+        if(gbR?.ok){const d=await gbR.json();ext=d.items?.[0]?parseGoogleVolume(d.items[0]):null;}
+      }
+      const lib=ext?checkLibrary(ext):null;
+      if(!ext&&!lib){setErr("Book not found. Try a different title or ISBN.");setMode(null);return;}
+      setResult({owned:!!lib,libraryBook:lib,externalBook:ext});
+      setMode(null);
+    } catch{setErr("Search failed. Check your connection.");setMode(null);}
+  }
+
+  async function onISBN(isbn){await lookup(isbn);}
+
+  function reset(){setResult(null);setErr("");setQ("");setMode(null);}
+
+  const fmtList = (b) => {
+    const fmts = b.ownedFormats||[b.bookFormat||"physical"];
+    return fmts.map(f=>FL[f]).join(" · ");
+  };
+
+  if(mode==="barcode") return <div>
+    <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0}}>Scan Barcode</h3>
+    <BarcodeScanner onDetected={onISBN} onClose={()=>setMode(null)}/>
+  </div>;
+
+  if(mode==="loading") return <div style={{textAlign:"center",padding:"56px 0"}}>
+    <div style={{fontSize:52,marginBottom:16}}>🔍</div>
+    <p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:15}}>Checking your library…</p>
+  </div>;
+
+  if(result) {
+    const b = result.owned ? result.libraryBook : result.externalBook;
+    const owned = result.owned;
+    return <div>
+      <div style={{textAlign:"center",marginBottom:20}}>
+        <div style={{fontSize:48,marginBottom:6}}>{owned?"✅":"➕"}</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:900,color:owned?P.green:P.text,marginBottom:4}}>
+          {owned?"You already own this!":"Not in your collection"}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:14,background:P.bgSurface,borderRadius:16,padding:14,border:`1px solid ${owned?P.green+"44":P.border}`,marginBottom:18}}>
+        <div style={{width:60,height:84,borderRadius:8,overflow:"hidden",flexShrink:0}}>
+          <CoverImg src={b?.cover} isbn13={b?.isbn13} isbn10={b?.isbn10} alt={b?.title} style={{width:60,height:84,objectFit:"cover",borderRadius:8}}/>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:15,lineHeight:1.3,marginBottom:4}}>{b?.title}</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:12,marginBottom:6}}>{b?.authors?.join(", ")}{b?.year?` · ${b.year}`:""}</div>
+          {owned&&<>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,marginBottom:3}}>
+              <strong style={{color:P.text}}>Formats:</strong> {fmtList(result.libraryBook)}
+            </div>
+            <div style={{display:"inline-flex",alignItems:"center",gap:6}}>
+              <Pill label={SL[result.libraryBook.status]} color={SC[result.libraryBook.status]}/>
+              {result.libraryBook.rating>0&&<Stars value={result.libraryBook.rating} size={12}/>}
+            </div>
+          </>}
+          {!owned&&b?.isbn13&&<div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>ISBN: {b.isbn13}</div>}
+        </div>
+      </div>
+      {!owned&&<div style={{display:"flex",gap:8,marginBottom:12}}>
+        <button onClick={()=>{onAdd({...result.externalBook,status:"owned"});onClose();}} style={{flex:1,background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:12,padding:"13px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",boxShadow:`0 4px 16px ${P.accentGlow}`}}>+ Add to Library</button>
+        <button onClick={()=>{onAdd({...result.externalBook,status:"wishlist"});onClose();}} style={{flex:1,background:"rgba(168,85,247,.1)",color:P.purple,border:"1px solid rgba(168,85,247,.3)",borderRadius:12,padding:"13px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer"}}>💜 Wishlist</button>
+      </div>}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={reset} style={{flex:1,background:P.bgSurface,color:P.textLt,border:`1px solid ${P.border}`,borderRadius:12,padding:"11px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>🔍 Check Another</button>
+        <button onClick={onClose} style={{background:P.bgCard,color:P.muted,border:`1px solid ${P.border}`,borderRadius:12,padding:"11px 18px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>Done</button>
+      </div>
+    </div>;
+  }
+
+  return <div>
+    <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0,fontSize:22,marginBottom:6}}>🛒 Check My Library</h3>
+    <p style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,marginBottom:18,lineHeight:1.6}}>Already own it? Find out before you buy.</p>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
+      {[{icon:"📷",label:"Scan Barcode",action:()=>setMode("barcode")},{icon:"✏️",label:"Type Title / ISBN",action:()=>document.getElementById("shop-q")?.focus()}].map(({icon,label,action})=>(
+        <button key={label} onClick={action} style={{background:P.bgCard,border:`1.5px solid ${P.border}`,borderRadius:14,padding:"16px 8px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:7,transition:"all .15s"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=P.accent;e.currentTarget.style.background=P.bgSurface;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=P.border;e.currentTarget.style.background=P.bgCard;}}>
+          <span style={{fontSize:28}}>{icon}</span>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.textLt,fontWeight:700,textAlign:"center"}}>{label}</span>
+        </button>
+      ))}
+    </div>
+    <div style={{display:"flex",gap:8}}>
+      <input id="shop-q" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&q.trim()){e.preventDefault();lookup(q.trim());}}} placeholder="Title, author, or ISBN…" autoComplete="off" autoCorrect="off" spellCheck="false" style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/>
+      <button onClick={()=>q.trim()&&lookup(q.trim())} disabled={!q.trim()} style={{background:q.trim()?P.accent:P.disabledBtn,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:q.trim()?"pointer":"default",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15}}>Go</button>
+    </div>
+    {err&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginTop:10}}>{err}</div>}
+  </div>;
+}
+
+// ─── About Modal ──────────────────────────────────────────────────────────────
+const APP_VERSION="23";
+const HELP_SECTIONS=[
+  {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
+  {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
+  {title:"Series Detection",icon:"🔗",body:`When you add a new book, the app automatically checks if it's part of a series and offers to add the companion books to your Wishlist. You can also trigger this anytime from the book detail screen using the 🔗 Series button.`},
+  {title:"Multiple Formats",icon:"📦",body:`Own both the paperback and audiobook? The app keeps one record per title. Toggle additional formats in the Owned Formats section of the book detail. All owned formats appear as icons on the book card.`},
+  {title:"AI Features",icon:"✨",body:`The Suggest tab offers two AI-powered tools:\n• Personalized Picks — 25 recommendations based on your library\n• Mood Search — describe a mood or theme and get matching books\nSeries detection also uses AI to find complete series lists.`},
+  {title:"Achievements & XP",icon:"🏆",body:`Earn badges by reaching milestones: finishing books, exploring genres, tracking progress, lending books, and more. Each badge awards XP. Enough XP raises your reader level, shown at the top of the Awards tab.`},
+  {title:"Custom Shelves & Filters",icon:"📂",body:`Create custom shelves (e.g. "Beach Reads", "Signed Copies") from the 📂 button in the library header. Apply them in the book detail view. Use ⚙ Filter & Sort to filter by status, genre, shelf, or sort order. Save any combination as a named view.`},
+  {title:"Backup & Sync",icon:"💾",body:`Your library automatically syncs across devices via Firebase when you're signed in with Google. You can also export a full JSON backup from the 💾 backup button and restore it on any device — useful as a manual safety copy.`},
+];
+function AboutModal({onClose}) {
+  const [open,setOpen]=useState(null);
+  return <div>
+    {/* Header */}
+    <div style={{textAlign:"center",marginBottom:24}}>
+      <div style={{fontSize:52,marginBottom:10,lineHeight:1}}>📚</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:P.text,marginBottom:4}}>Bookshelf</div>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,marginBottom:8}}>Version {APP_VERSION} · Made by Ben Simpson</div>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.textLt,lineHeight:1.7,maxWidth:340,margin:"0 auto"}}>
+        A personal library tracker that lives in your browser — no app store, no installs. Track what you own, what you're reading, and what you want to read next.
+      </div>
+    </div>
+    <div style={{height:1,background:P.border,marginBottom:16}}/>
+    {/* Help accordion */}
+    <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>How to Use</div>
+    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+      {HELP_SECTIONS.map(s=><div key={s.title}>
+        <button onClick={()=>setOpen(o=>o===s.title?null:s.title)} style={{width:"100%",display:"flex",alignItems:"center",gap:10,padding:"12px 14px",background:open===s.title?P.bgSurface:P.bgCard,border:`1px solid ${open===s.title?P.borderAccent:P.border}`,borderRadius:open===s.title?"12px 12px 0 0":12,cursor:"pointer",textAlign:"left",transition:"all .15s"}}>
+          <span style={{fontSize:18,width:24,textAlign:"center"}}>{s.icon}</span>
+          <span style={{flex:1,fontFamily:"'Nunito',sans-serif",fontSize:14,fontWeight:700,color:P.text}}>{s.title}</span>
+          <span style={{fontSize:12,color:P.muted,transition:"transform .2s",display:"inline-block",transform:open===s.title?"rotate(180deg)":"none"}}>▼</span>
+        </button>
+        {open===s.title&&<div style={{background:P.bgSurface,border:`1px solid ${P.borderAccent}`,borderTop:"none",borderRadius:"0 0 12px 12px",padding:"12px 14px 14px 48px"}}>
+          {s.body.split("\n").map((line,i)=><p key={i} style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.textLt,lineHeight:1.7,margin:i===0?"0 0 4px":"4px 0 0"}}>{line}</p>)}
+        </div>}
+      </div>)}
+    </div>
+    <div style={{marginTop:20,textAlign:"center"}}>
+      <a href="https://bensim123.github.io/bookshelf-app" target="_blank" rel="noopener noreferrer" style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.accent,fontWeight:700,textDecoration:"none"}}>🔗 bensim123.github.io/bookshelf-app</a>
+    </div>
+  </div>;
+}
+
+function AddModal({onAdd,onClose,onOpenImport,books}) {
   const [mode,setMode]=useState(null);const [msg,setMsg]=useState("");
   const [notFoundIsbn,setNotFoundIsbn]=useState("");
   async function onISBN(isbn){setMode("loading");const book=await fetchByISBN(isbn);if(book){onAdd(book);}else{setNotFoundIsbn(isbn);setMsg("ISBN not found — this edition may be too new for Open Library or Google Books. Try searching by title above.");setMode(null);}}
   if(mode==="barcode")return <div><h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0}}>Scan Barcode</h3><BarcodeScanner onDetected={onISBN} onClose={()=>setMode(null)}/></div>;
+  if(mode==="shop")return <ShopCheckModal books={books||[]} onAdd={onAdd} onClose={()=>setMode(null)}/>;
   if(mode==="loading")return <div style={{textAlign:"center",padding:"48px 0"}}><div style={{fontSize:52,marginBottom:16}}>🔍</div><p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt}}>Looking up book…</p></div>;
   return <div>
     <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0,fontSize:22,marginBottom:18}}>Add a Book</h3>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:22}}>{[{icon:"📷",label:"Barcode",m:"barcode"},{icon:"🔍",label:"Search",m:"search"}].map(({icon,label,m})=><button key={m} onClick={()=>setMode(mode===m?null:m)} style={{background:mode===m?P.accent:P.bgCard,border:`1.5px solid ${mode===m?P.accent:P.border}`,borderRadius:14,padding:"16px 8px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:7,boxShadow:mode===m?`0 4px 20px ${P.accentGlow}`:"none",transition:"all .15s"}}><span style={{fontSize:28}}>{icon}</span><span style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:mode===m?"#fff":P.textLt,fontWeight:700}}>{label}</span></button>)}</div>
-    {msg&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.7}}>{msg}{notFoundIsbn&&<><br/><a href={`https://www.barnesandnoble.com/s/${notFoundIsbn}`} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:700}}>🔗 Look up on Barnes &amp; Noble</a></>}</div>}
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:22}}>
+      {[{icon:"📷",label:"Barcode",m:"barcode"},{icon:"🛒",label:"Check",m:"shop"},{icon:"🔍",label:"Search",m:"search"}].map(({icon,label,m})=>(
+        <button key={m} onClick={()=>setMode(mode===m?null:m)} style={{background:mode===m?P.accent:P.bgCard,border:`1.5px solid ${mode===m?P.accent:P.border}`,borderRadius:14,padding:"14px 6px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,boxShadow:mode===m?`0 4px 20px ${P.accentGlow}`:"none",transition:"all .15s"}}>
+          <span style={{fontSize:26}}>{icon}</span>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:mode===m?"#fff":P.textLt,fontWeight:700}}>{label}</span>
+        </button>
+      ))}
+    </div>
+    {msg&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.7}}>{msg}</div>}
     {mode==="search"&&<SearchPanel onAdd={onAdd}/>}
     {!mode&&<div style={{textAlign:"center",padding:"16px 0 8px",color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:13}}>Choose a method above, or type to search</div>}
   </div>;
@@ -2149,6 +2338,7 @@ function App({ user }) {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [showFriends, setShowFriends] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [savedViews,setSavedViews]     = useState(()=>load("savedViews",[]));
   const [activeView,setActiveView]     = useState(null);
   const [showSavedViews,setShowSavedViews] = useState(false);
@@ -2542,7 +2732,7 @@ function App({ user }) {
     </nav>
 
     {/* All modals */}
-    {showAdd        &&<Sheet onClose={()=>setShowAdd(false)}><AddModal onAdd={addBook} onClose={()=>setShowAdd(false)} onOpenImport={()=>{setShowAdd(false);setTimeout(()=>setShowImport(true),200);}}/></Sheet>}
+    {showAdd        &&<Sheet onClose={()=>setShowAdd(false)}><AddModal books={books} onAdd={addBook} onClose={()=>setShowAdd(false)} onOpenImport={()=>{setShowAdd(false);setTimeout(()=>setShowImport(true),200);}}/></Sheet>}
     {selected       &&<Sheet onClose={()=>setSelected(null)} noPad><DetailModal book={selected} onClose={()=>setSelected(null)} onUpdate={b=>{updateBook(b);setSelected(null);}} onDelete={deleteBook} onLogProgress={b=>{setProgressBook(b);setSelected(null);}} onLogHighlights={b=>{setHighlightBook(b);setSelected(null);}} onLogLoan={b=>{setLoanBook(b);setSelected(null);}} onFindSeries={b=>{setSelected(null);findSeriesForBook(b);}} customShelves={customShelves}/></Sheet>}
     {showExport     &&<Sheet onClose={()=>setShowExport(false)}><WishlistExport books={books} onClose={()=>setShowExport(false)}/></Sheet>}
     {showGoalSetup  &&<Sheet onClose={()=>setShowGoalSetup(false)}><GoalSetup goal={readingGoal} onSave={setReadingGoal} onClose={()=>setShowGoalSetup(false)}/></Sheet>}
@@ -2556,7 +2746,8 @@ function App({ user }) {
     {showOnboarding &&<Sheet onClose={()=>{save("onboarded",true);setShowOnboarding(false);}}><OnboardingSheet onDone={()=>{save("onboarded",true);setShowOnboarding(false);}}/></Sheet>}
     {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SavedViewsModal views={savedViews} onSave={addSavedView} onDelete={deleteSavedView} currentFilters={{status:filterStatus,genre:filterGenre,shelf:shelfFilter,sort:sortBy}} onClose={()=>setShowSavedViews(false)}/></Sheet>}
     {showFriends    &&<Sheet onClose={()=>setShowFriends(false)}><FriendsScreen user={user} friends={friends} setFriends={setFriends} pendingRequests={pendingRequests} setPendingRequests={setPendingRequests} onClose={()=>setShowFriends(false)}/></Sheet>}
-    {showProfileMenu&&<ProfileMenu user={user} pendingRequests={pendingRequests} onFriends={()=>{setShowProfileMenu(false);setShowFriends(true);}} onSignOut={()=>{setShowProfileMenu(false);firebase.auth().signOut();}} onClose={()=>setShowProfileMenu(false)}/>}
+    {showProfileMenu&&<ProfileMenu user={user} pendingRequests={pendingRequests} onFriends={()=>{setShowProfileMenu(false);setShowFriends(true);}} onAbout={()=>{setShowProfileMenu(false);setShowAbout(true);}} onSignOut={()=>{setShowProfileMenu(false);firebase.auth().signOut();}} onClose={()=>setShowProfileMenu(false)}/>}
+    {showAbout&&<Sheet onClose={()=>setShowAbout(false)}><AboutModal onClose={()=>setShowAbout(false)}/></Sheet>}
   </div>;
 }
 
@@ -2756,7 +2947,7 @@ function AddFriendModal({ user, friends, onClose, onRequestSent }) {
 }
 
 // ─── Profile Menu ─────────────────────────────────────────────────────────────
-function ProfileMenu({ user, pendingRequests, onFriends, onSignOut, onClose }) {
+function ProfileMenu({ user, pendingRequests, onFriends, onAbout, onSignOut, onClose }) {
   const initials = (user?.displayName||user?.email||'?').slice(0,1).toUpperCase();
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
@@ -2789,6 +2980,14 @@ function ProfileMenu({ user, pendingRequests, onFriends, onSignOut, onClose }) {
               <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>Compare libraries &amp; achievements</div>
             </div>
             {pendingRequests.length>0&&<span style={{background:"#ef4444",borderRadius:10,minWidth:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",padding:"0 5px",fontFamily:"'Nunito',sans-serif"}}>{pendingRequests.length}</span>}
+          </button>
+          <button onClick={onAbout} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 12px",background:"none",border:"none",borderRadius:14,cursor:"pointer",textAlign:"left",color:P.text,transition:"background .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background=P.bgSurface} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span style={{fontSize:22,width:30,textAlign:"center"}}>ℹ️</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700}}>About Bookshelf</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>Version {APP_VERSION} · Help &amp; features</div>
+            </div>
           </button>
           <button onClick={onSignOut} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 12px",background:"none",border:"none",borderRadius:14,cursor:"pointer",textAlign:"left",color:"#ef4444",transition:"background .15s"}}
             onMouseEnter={e=>e.currentTarget.style.background="rgba(239,68,68,.08)"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
