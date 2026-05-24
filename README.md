@@ -1,6 +1,6 @@
 # 📚 Bookshelf
 
-A personal book library tracker that runs as a web app — no app store, no installs. Add books by barcode scan, cover photo, or search. Track reading progress, take notes, log highlights, and earn achievements.
+A personal book library tracker that runs as a web app — no app store, no installs. Add books by barcode scan or search. Track reading progress, take notes, log highlights, and earn achievements.
 
 **Live app:** https://bensim123.github.io/bookshelf-app
 
@@ -8,16 +8,17 @@ A personal book library tracker that runs as a web app — no app store, no inst
 
 ## Features
 
-- **Add books** via barcode scan (camera), cover photo AI recognition, or Open Library search
+- **Add books** via barcode scan (camera) or title/author/ISBN search
 - **Track status** — Owned, Reading, Read, DNF, Wishlist
 - **Reading progress** — page numbers for physical/ebook, minutes for audiobooks
+- **Multi-format per title** — own a book in multiple formats (physical, ebook, audiobook) on one record
 - **Format tracking** — Physical (paperback/hardcover/mass market), E-Book, Audiobook
 - **Notes & highlights** — personal annotations per book
 - **Loan tracker** — who has your book and since when
 - **Custom shelves** — organize beyond status (e.g. "Beach Reads", "Gift Ideas")
-- **Series modal** — automatically finds companion books in a series
+- **Series detection** — automatically finds companion books when you add a new title; re-trigger anytime from the book detail screen
 - **Stats screen** — books by status/format, reading streak, pages read, hours listened
-- **Achievements** — 39 badges across 6 categories with XP and level system
+- **Achievements** — 45 badges across 6 categories with XP and level system
 - **AI suggestions** — personalized reading picks or mood-based recommendations
 - **Saved views** — save filter + sort combinations as named presets
 - **Backup/restore** — export/import your full library as JSON
@@ -37,10 +38,9 @@ A personal book library tracker that runs as a web app — no app store, no inst
 | JSX | Babel standalone (in-browser compilation) |
 | Auth | Firebase Authentication (Google Sign-In) |
 | Storage | Firebase Firestore (per-user cloud document) |
-| Book data | Open Library API (free, no key required) |
+| Book data | Open Library API + Google Books API (no key required) |
 | Barcode scanning | ZXing `@zxing/browser` via jsDelivr |
-| Cover AI | Claude API (`claude-sonnet-4-20250514`) |
-| AI suggestions | Claude API (`claude-sonnet-4-20250514`) |
+| AI (series/suggestions) | Groq `llama-3.3-70b-versatile` via Cloudflare Worker proxy |
 | Fonts | Playfair Display + Nunito (Google Fonts) |
 | Hosting | GitHub Pages |
 

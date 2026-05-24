@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v21';
+const CACHE='bookshelf-v22';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v20 ok');
+        console.log('SW v21 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -281,13 +281,13 @@ const ACHIEVEMENTS = [
   {id:"twentyfive",    cat:"reading", icon:"🏆", title:"Voracious Reader",   desc:"Finish 25 books",                   xp:400,  check:b=>b.filter(x=>x.status==="read").length>=25},
   {id:"fifty_books",   cat:"reading", icon:"⚡", title:"Reading Machine",    desc:"Finish 50 books",                   xp:800,  check:b=>b.filter(x=>x.status==="read").length>=50},
   {id:"century",       cat:"reading", icon:"💯", title:"Century Club",       desc:"Finish 100 books",                  xp:2000, check:b=>b.filter(x=>x.status==="read").length>=100},
-  {id:"speed_reader",  cat:"reading", icon:"💨", title:"Speed Reader",       desc:"Finish a book in under 7 days",     xp:200,  check:b=>b.filter(x=>x.status==="read"&&x.readDates?.length>0&&x.addedAt&&(new Date(x.readDates[0])-x.addedAt)<7*864e5).length>0},
+  {id:"speed_reader",  cat:"reading", icon:"💨", title:"Speed Reader",       desc:"Finish a book in under 7 days",     xp:200,  check:b=>b.filter(x=>x.status==="read"&&x.readDates?.length>0&&x.progressHistory?.length>0&&(()=>{const diff=new Date(x.readDates[x.readDates.length-1])-new Date(x.progressHistory[0].date);return diff>0&&diff<7*864e5;})()).length>0},
 
   // ── Library size ──────────────────────────────────────────────────────────────
   {id:"library10",     cat:"library", icon:"🗂️",  title:"Collector",         desc:"Add 10 books to your library",      xp:75,   check:b=>b.length>=10},
   {id:"library50",     cat:"library", icon:"🏛️",  title:"Librarian",          desc:"Add 50 books to your library",      xp:300,  check:b=>b.length>=50},
   {id:"wishlist5",     cat:"library", icon:"💜", title:"Dream Library",      desc:"Add 5 books to your wishlist",      xp:50,   check:b=>b.filter(x=>x.status==="wishlist").length>=5},
-  {id:"series_fan",    cat:"library", icon:"📖", title:"Series Fan",         desc:"Have 3+ wishlist books",            xp:75,   check:b=>b.filter(x=>x.status==="wishlist").length>=3},
+  {id:"series_fan",    cat:"library", icon:"📖", title:"Series Fan",         desc:"Collect 3+ books from the same series", xp:75, check:b=>{const owned=b.filter(x=>['owned','reading','read'].includes(x.status));const s={};owned.forEach(x=>{const sn=extractSeries(x);if(sn){const k=sn.toLowerCase();s[k]=(s[k]||0)+1;}});return Object.values(s).some(c=>c>=3);}},
   {id:"pb_collector",  cat:"library", icon:"📗", title:"Paperback Paradise", desc:"Own 10 paperbacks",                 xp:120,  check:b=>ownByBinding(b,"paperback").length>=10},
   {id:"hc_devotee",    cat:"library", icon:"📘", title:"Hardcover Devotee",  desc:"Own 5 hardcovers",                  xp:100,  check:b=>ownByBinding(b,"hardcover").length>=5},
 
@@ -299,10 +299,18 @@ const ACHIEVEMENTS = [
   {id:"halfway",       cat:"depth",   icon:"🏃", title:"Halfway There",      desc:"Log 50% progress on a book",        xp:50,   check:b=>b.some(x=>(x.progressHistory||[]).some(h=>h.pct>=50))},
   {id:"librarian_lend",cat:"depth",   icon:"🤝", title:"Generous Reader",    desc:"Lend a book to a friend",           xp:75,   check:b=>b.some(x=>x.loan)},
   {id:"honest",        cat:"depth",   icon:"🚫", title:"Honest Reviewer",    desc:"Mark a book as DNF",                xp:30,   check:b=>b.some(x=>x.status==="dnf")},
+  {id:"re_reader",     cat:"depth",   icon:"🔁", title:"Re-Reader",          desc:"Read the same book twice",           xp:100,  check:b=>b.some(x=>(x.readDates||[]).length>=2)},
 
-  // ── Exploration (genres) ───────────────────────────────────────────────────────
+  // ── Page count milestones ──────────────────────────────────────────────────────
+  {id:"quick_read",    cat:"reading", icon:"🌠", title:"Quick Finish",       desc:"Read a book under 200 pages",        xp:50,   check:b=>b.some(x=>x.status==="read"&&parseInt(x.pages||0)>0&&parseInt(x.pages||0)<200)},
+  {id:"epic_journey",  cat:"reading", icon:"🏔️",  title:"Epic Journey",       desc:"Read a book over 600 pages",         xp:150,  check:b=>b.some(x=>x.status==="read"&&parseInt(x.pages||0)>=600)},
+
+  // ── Exploration (genres, time, language) ──────────────────────────────────────
   {id:"genre_hopper",  cat:"explore", icon:"🌍", title:"Genre Hopper",       desc:"Read books in 3 different genres",  xp:150,  check:b=>new Set(b.filter(x=>x.status==="read"&&x.genre).map(x=>x.genre)).size>=3},
   {id:"renaissance",   cat:"explore", icon:"🎨", title:"Renaissance Reader", desc:"Read books in 5 different genres",  xp:300,  check:b=>new Set(b.filter(x=>x.status==="read"&&x.genre).map(x=>x.genre)).size>=5},
+  {id:"genre_master",  cat:"explore", icon:"🎭", title:"Genre Master",       desc:"Read 5 books in the same genre",    xp:200,  check:b=>{const g={};b.filter(x=>x.status==="read"&&x.genre).forEach(x=>{g[x.genre]=(g[x.genre]||0)+1;});return Object.values(g).some(c=>c>=5);}},
+  {id:"time_traveler", cat:"explore", icon:"⏳", title:"Time Traveler",      desc:"Read a classic published before 1970", xp:100, check:b=>b.some(x=>x.status==="read"&&parseInt(x.year||9999)<1970)},
+  {id:"polyglot",      cat:"explore", icon:"🌐", title:"Polyglot",           desc:"Read a book in a foreign language", xp:200,  check:b=>b.some(x=>x.status==="read"&&x.language&&x.language!=="en")},
 
   // ── Goals ─────────────────────────────────────────────────────────────────────
   {id:"goal_set",      cat:"goals",   icon:"🎯", title:"Goal Setter",        desc:"Set a yearly reading goal",         xp:25,   check:(b,m)=>m?.goal>0},
@@ -315,7 +323,7 @@ const ACHIEVEMENTS = [
   {id:"ears_open",     cat:"format",  icon:"👂", title:"Ears Wide Open",     desc:"Finish 10 audiobooks",              xp:300,  check:b=>readBy(b,"audiobook").length>=10},
   {id:"audio_addict",  cat:"format",  icon:"🔊", title:"Audio Addict",       desc:"Finish 25 audiobooks",              xp:600,  check:b=>readBy(b,"audiobook").length>=25},
   {id:"marathon_ear",  cat:"format",  icon:"⏱️",  title:"Marathon Listener",  desc:"Listen to 1,000+ minutes total",    xp:250,  check:b=>totalAudioMinutes(b)>=1000},
-  {id:"binge_listen",  cat:"format",  icon:"🌙", title:"Binge Listener",     desc:"Finish an audiobook in under 3 days",xp:200, check:b=>b.filter(x=>x.status==="read"&&x.bookFormat==="audiobook"&&x.readDates?.length>0&&x.addedAt&&(new Date(x.readDates[0])-x.addedAt)<3*864e5).length>0},
+  {id:"binge_listen",  cat:"format",  icon:"🌙", title:"Binge Listener",     desc:"Finish an audiobook in under 3 days",xp:200, check:b=>b.filter(x=>x.status==="read"&&x.bookFormat==="audiobook"&&x.readDates?.length>0&&x.progressHistory?.length>0&&(()=>{const diff=new Date(x.readDates[x.readDates.length-1])-new Date(x.progressHistory[0].date);return diff>0&&diff<3*864e5;})()).length>0},
 
   // ── E-book achievements 📱 ────────────────────────────────────────────────────
   {id:"pixel_pages",   cat:"format",  icon:"📱", title:"Pixel Pages",        desc:"Finish your first e-book",          xp:75,   check:b=>readBy(b,"ebook").length>=1},
@@ -906,7 +914,7 @@ function BookCard({book,onClick}) {
       <Pill label={SL[book.status]} color={SC[book.status]}/>
       {book.loan&&<Pill label={`📤 ${book.loan.name}`} color="rgba(139,104,176,.85)"/>}
       {book.addedAt&&(Date.now()-book.addedAt)<86400000&&<Pill label="NEW" color={P.gold} tc="#000"/>}
-      {book.bookFormat&&book.bookFormat!=="physical"&&<span style={{fontSize:14,lineHeight:1,filter:"drop-shadow(0 1px 2px rgba(0,0,0,.4))"}}>{FI[book.bookFormat]}</span>}
+      {(book.ownedFormats||[book.bookFormat||"physical"]).filter(f=>f!=="physical").map(f=><span key={f} style={{fontSize:14,lineHeight:1,filter:"drop-shadow(0 1px 2px rgba(0,0,0,.4))"}}>{FI[f]}</span>)}
     </div>
     <div style={{height:155,background:P.bgSurface,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
       <CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
@@ -963,16 +971,6 @@ function BarcodeScanner({onDetected,onClose}) {
     return()=>{active=false;streamRef.current?.getTracks().forEach(t=>t.stop());};
   },[]);
   return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}><div style={{position:"relative",width:"100%",borderRadius:14,overflow:"hidden",background:"#000",aspectRatio:"4/3"}}><video ref={vidRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}}/><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}><div style={{width:"78%",height:90,border:`2px solid ${P.accent}`,borderRadius:10,boxShadow:`0 0 0 2000px rgba(0,0,0,.55), 0 0 20px ${P.accentGlow}`}}/></div></div><p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:14}}>{status}</p><button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Cancel</button></div>;
-}
-function CoverScanner({onDetected,onClose}) {
-  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:"8px 0"}}>
-    <div style={{width:"100%",aspectRatio:"3/2",border:`2px dashed ${P.border}`,borderRadius:16,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:P.bgSurface}}>
-      <span style={{fontSize:48}}>📸</span>
-      <span style={{fontFamily:"'Nunito',sans-serif",color:P.text,fontSize:15,fontWeight:700,textAlign:"center",padding:"0 24px"}}>Cover photo scan unavailable</span>
-      <span style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,textAlign:"center",lineHeight:1.5,padding:"0 24px"}}>Use the <strong style={{color:P.accent}}>Barcode</strong> tab to scan a ISBN barcode, or the <strong style={{color:P.accent}}>Search</strong> tab to find by title or author.</span>
-    </div>
-    <button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Close</button>
-  </div>;
 }
 
 // ─── Cover Picker ─────────────────────────────────────────────────────────────
@@ -1059,9 +1057,10 @@ function SearchPanel({onAdd}) {
   const [q,setQ]=useState("");const [res,setRes]=useState([]);const [busy,setBusy]=useState(false);const [err,setErr]=useState("");
   const [coverPickFor,setCoverPickFor]=useState(null);
   const [pendingBook,setPendingBook]=useState(null);
+  const [errIsbn,setErrIsbn]=useState("");
   async function go(){
     const query=q.trim();if(!query)return;
-    setBusy(true);setErr("");setRes([]);
+    setBusy(true);setErr("");setErrIsbn("");setRes([]);
     try{
       const clean=query.replace(/[^0-9X]/gi,"");
       const isISBN=/^\d{13}$/.test(clean)||/^\d{10}$/.test(clean)||/^\d{9}X$/i.test(clean);
@@ -1083,14 +1082,17 @@ function SearchPanel({onAdd}) {
         books=[...olBooks,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
       }
       setRes(books);
-      if(!books.length)setErr("No books found — try a different title, author, or ISBN.");
+      if(!books.length){
+        if(isISBN){setErr("ISBN not found — this edition may be too new for Open Library or Google Books. Try searching by title, or check:");setErrIsbn(clean);}
+        else setErr("No books found — try a different title, author, or ISBN.");
+      }
     }catch{setErr("Search failed. Check your connection and try again.");}
     finally{setBusy(false);}
   }
   if(coverPickFor) return <CoverPickerModal book={coverPickFor} onSelect={url=>{const updated={...coverPickFor,cover:url};if(pendingBook){onAdd(updated);}else{setRes(r=>r.map(b=>b.id===coverPickFor.id?{...b,cover:url}:b));} setCoverPickFor(null);setPendingBook(null);}} onClose={()=>{setCoverPickFor(null);setPendingBook(null);}}/>;
   return <div>
     <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" autoFocus style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
-    {err&&<p style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12}}>{err}</p>}
+    {err&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.6}}>{err}{errIsbn&&<><br/><a href={`https://www.barnesandnoble.com/s/${errIsbn}`} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:700}}>🔗 Search Barnes &amp; Noble for this ISBN</a></>}</div>}
     {busy&&<div style={{textAlign:"center",padding:"24px 0",color:P.muted,fontFamily:"'Nunito',sans-serif"}}>Searching…</div>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>{res.map(book=><div key={book.id} style={{display:"flex",gap:12,padding:"11px 12px",background:P.bgCard,borderRadius:12,border:`1px solid ${P.border}`,transition:"border-color .15s,background .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=P.bgSurface;e.currentTarget.style.borderColor=P.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=P.bgCard;e.currentTarget.style.borderColor=P.border;}}>
       {/* Cover thumbnail — tap to pick different cover */}
@@ -1114,13 +1116,14 @@ function SearchPanel({onAdd}) {
 }
 function AddModal({onAdd,onClose,onOpenImport}) {
   const [mode,setMode]=useState(null);const [msg,setMsg]=useState("");
-  async function onISBN(isbn){setMode("loading");const book=await fetchByISBN(isbn);if(book)onAdd(book);else{setMsg("No book found for that barcode.");setMode(null);}}
+  const [notFoundIsbn,setNotFoundIsbn]=useState("");
+  async function onISBN(isbn){setMode("loading");const book=await fetchByISBN(isbn);if(book){onAdd(book);}else{setNotFoundIsbn(isbn);setMsg("ISBN not found — this edition may be too new for Open Library or Google Books. Try searching by title above.");setMode(null);}}
   if(mode==="barcode")return <div><h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0}}>Scan Barcode</h3><BarcodeScanner onDetected={onISBN} onClose={()=>setMode(null)}/></div>;
   if(mode==="loading")return <div style={{textAlign:"center",padding:"48px 0"}}><div style={{fontSize:52,marginBottom:16}}>🔍</div><p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt}}>Looking up book…</p></div>;
   return <div>
     <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0,fontSize:22,marginBottom:18}}>Add a Book</h3>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:22}}>{[{icon:"📷",label:"Barcode",m:"barcode"},{icon:"🔍",label:"Search",m:"search"}].map(({icon,label,m})=><button key={m} onClick={()=>setMode(mode===m?null:m)} style={{background:mode===m?P.accent:P.bgCard,border:`1.5px solid ${mode===m?P.accent:P.border}`,borderRadius:14,padding:"16px 8px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:7,boxShadow:mode===m?`0 4px 20px ${P.accentGlow}`:"none",transition:"all .15s"}}><span style={{fontSize:28}}>{icon}</span><span style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:mode===m?"#fff":P.textLt,fontWeight:700}}>{label}</span></button>)}</div>
-    {msg&&<p style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12}}>{msg}</p>}
+    {msg&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.7}}>{msg}{notFoundIsbn&&<><br/><a href={`https://www.barnesandnoble.com/s/${notFoundIsbn}`} target="_blank" rel="noopener noreferrer" style={{color:P.accent,fontWeight:700}}>🔗 Look up on Barnes &amp; Noble</a></>}</div>}
     {mode==="search"&&<SearchPanel onAdd={onAdd}/>}
     {!mode&&<div style={{textAlign:"center",padding:"16px 0 8px",color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:13}}>Choose a method above, or type to search</div>}
   </div>;
@@ -1131,7 +1134,7 @@ function MetaRow({label,value}) {
   if(!value) return null;
   return <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"9px 0",borderBottom:`1px solid ${P.border}`}}><span style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,flexShrink:0,paddingRight:12}}>{label}</span><span style={{fontFamily:"'Nunito',sans-serif",fontSize:13.5,color:P.text,textAlign:"right",lineHeight:1.5}}>{value}</span></div>;
 }
-function DetailModal({book,onClose,onUpdate,onDelete,onLogProgress,onLogHighlights,onLogLoan,customShelves}) {
+function DetailModal({book,onClose,onUpdate,onDelete,onLogProgress,onLogHighlights,onLogLoan,onFindSeries,customShelves}) {
   const [ed,setEd]=useState({...book});const [exp,setExp]=useState(false);
   const [showCoverPick,setShowCoverPick]=useState(false);
   const langMap={en:"English",fr:"French",de:"German",es:"Spanish",it:"Italian",pt:"Portuguese",ja:"Japanese",zh:"Chinese"};
@@ -1179,10 +1182,30 @@ function DetailModal({book,onClose,onUpdate,onDelete,onLogProgress,onLogHighligh
         {ed.status==="reading"&&onLogProgress&&<button onClick={()=>{onLogProgress(ed);onClose();}} style={{background:"rgba(16,185,129,.1)",color:SC.reading,border:`1px solid rgba(16,185,129,.3)`,borderRadius:10,padding:"8px 12px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}>{ed.bookFormat==="audiobook"?"🎧 Listening":"📖 Progress"}</button>}
         {onLogHighlights&&<button onClick={()=>{onLogHighlights(ed);onClose();}} style={{background:"rgba(99,102,241,.1)",color:P.accentLt,border:`1px solid ${P.borderAccent}`,borderRadius:10,padding:"8px 12px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}>✏️ Highlights {ed.highlights?.length>0?`(${ed.highlights.length})`:""}</button>}
         {onLogLoan&&(ed.bookFormat||"physical")==="physical"&&<button onClick={()=>{onLogLoan(ed);onClose();}} style={{background:"rgba(168,85,247,.1)",color:P.purple,border:"1px solid rgba(168,85,247,.3)",borderRadius:10,padding:"8px 12px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}>{ed.loan?"📤 Loaned":"📤 Lend"}</button>}
+        {onFindSeries&&<button onClick={()=>{onFindSeries(ed);onClose();}} style={{background:"rgba(99,102,241,.1)",color:P.accentLt,border:`1px solid ${P.borderAccent}`,borderRadius:10,padding:"8px 12px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}>🔗 Series</button>}
       </div>}
       {!isSug&&<div style={{marginBottom:16}}><div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:7}}>Status</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{STATUSES.map(s=><button key={s} onClick={()=>handleStatusChange(s)} style={{background:ed.status===s?SC[s]:P.bgSurface,color:ed.status===s?"#fff":P.textLt,border:`1px solid ${ed.status===s?SC[s]:P.border}`,borderRadius:20,padding:"7px 15px",cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,transition:"all .15s"}}>{SL[s]}</button>)}</div></div>}
-      {/* Format picker */}
-      {!isSug&&<div style={{marginBottom:16}}><div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:7}}>Format</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{FORMATS.map(f=><button key={f} onClick={()=>setEd(e=>({...e,bookFormat:f}))} style={{background:ed.bookFormat===f?P.accent:P.bgSurface,color:ed.bookFormat===f?"#fff":P.textLt,border:`1px solid ${ed.bookFormat===f?P.accent:P.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s"}}>{FL[f]}</button>)}</div></div>}
+      {/* Owned Formats (multi-select) */}
+      {!isSug&&<div style={{marginBottom:16}}>
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:7}}>Owned Formats</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+          {FORMATS.map(f=>{
+            const fmts=ed.ownedFormats||[ed.bookFormat||"physical"];
+            const owned=fmts.includes(f);
+            return <button key={f} onClick={()=>{
+              const newFmts=owned&&fmts.length>1?fmts.filter(x=>x!==f):[...new Set([...fmts,f])];
+              const primary=newFmts.includes(ed.bookFormat)?ed.bookFormat:newFmts[0]||"physical";
+              setEd(e=>({...e,bookFormat:primary,ownedFormats:newFmts}));
+            }} style={{background:owned?P.accent:P.bgSurface,color:owned?"#fff":P.textLt,border:`1px solid ${owned?P.accent:P.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s"}}>{FL[f]}</button>;
+          })}
+        </div>
+        {(ed.ownedFormats||[ed.bookFormat||"physical"]).length>1&&<div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,display:"flex",alignItems:"center",gap:6}}>
+          <span>Tracking progress as:</span>
+          <select value={ed.bookFormat||"physical"} onChange={e=>setEd(x=>({...x,bookFormat:e.target.value}))} style={{border:`1px solid ${P.border}`,borderRadius:8,padding:"3px 8px",fontFamily:"'Nunito',sans-serif",fontSize:11,background:P.bgSurface,color:P.text,outline:"none"}}>
+            {(ed.ownedFormats||[ed.bookFormat||"physical"]).map(f=><option key={f} value={f}>{FL[f]}</option>)}
+          </select>
+        </div>}
+      </div>}
       {/* Binding picker — only for physical books */}
       {!isSug&&(ed.bookFormat||"physical")==="physical"&&<div style={{marginBottom:16}}><div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:7}}>Binding</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{BINDINGS.filter(b=>b!=="unknown").map(b=><button key={b} onClick={()=>setEd(e=>({...e,bookBinding:b}))} style={{background:ed.bookBinding===b?P.accent:P.bgSurface,color:ed.bookBinding===b?"#fff":P.textLt,border:`1px solid ${ed.bookBinding===b?P.accent:P.border}`,borderRadius:20,padding:"6px 14px",cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,transition:"all .15s"}}>{BL[b]}</button>)}</div></div>}
       {/* Read date picker — shown when status is Read */}
@@ -1195,7 +1218,7 @@ function DetailModal({book,onClose,onUpdate,onDelete,onLogProgress,onLogHighligh
       <div style={{background:P.bgSurface,borderRadius:12,padding:"2px 14px",marginBottom:16,border:`1px solid ${P.border}`}}>
         <MetaRow label="Published" value={ed.publishedDate||ed.year}/>
         <MetaRow label="Publisher" value={ed.publisher}/>
-        <MetaRow label="Format" value={FL[ed.bookFormat||"physical"]}/>
+        <MetaRow label="Format" value={(ed.ownedFormats||[ed.bookFormat||"physical"]).map(f=>FL[f]).join(", ")}/>
         {(ed.bookFormat||"physical")==="physical"&&ed.bookBinding&&ed.bookBinding!=="unknown"&&<MetaRow label="Binding" value={BL[ed.bookBinding]}/>}
         <MetaRow label="Pages" value={(ed.bookFormat||"physical")!=="audiobook"&&ed.pages?`${parseInt(ed.pages).toLocaleString()} pages`:null}/>
         {ed.bookFormat==="audiobook"&&ed.pages&&<MetaRow label="Length" value={fmtMinutes(parseInt(ed.pages))}/>}
@@ -2215,21 +2238,37 @@ function App({ user }) {
 
   async function addBook(book) {
     setShowAdd(false);
-    let isUpgrade=false;
+    let mergeResult=null; // null=new | 'wishlist_upgrade' | 'format_added' | 'already_owned'
     let currentBooks;
     setBooks(prev=>{
       currentBooks=prev;
-      // Allow same title in different format (e.g. own paperback + audiobook)
-      const fmt = book.bookFormat||"physical";
-      const ex=prev.find(b=>b.id===book.id||(b.isbn13&&b.isbn13===book.isbn13&&b.isbn13!=="")
+      const fmt=book.bookFormat||"physical";
+      // Match by id, either ISBN, OR title (regardless of format — one record per title)
+      const ex=prev.find(b=>b.id===book.id
+        ||(b.isbn13&&b.isbn13===book.isbn13&&b.isbn13!=="")
         ||(b.isbn10&&b.isbn10===book.isbn10&&b.isbn10!=="")
-        ||(b.title.toLowerCase()===book.title.toLowerCase()&&(b.bookFormat||"physical")===fmt));
-      if(ex){isUpgrade=ex.status==="wishlist";return prev.map(b=>b.id===ex.id?{...ex,...book,id:ex.id,status:isUpgrade?"owned":ex.status,addedAt:ex.addedAt}:b);}
-      const newBook={...book,status:"owned",addedAt:Date.now(),customShelves:[],readDates:[],highlights:[]};
+        ||b.title.toLowerCase()===book.title.toLowerCase());
+      if(ex){
+        const exFmts=ex.ownedFormats||[ex.bookFormat||"physical"];
+        const hasFmt=exFmts.includes(fmt);
+        if(ex.status==="wishlist")mergeResult="wishlist_upgrade";
+        else if(hasFmt)mergeResult="already_owned";
+        else mergeResult="format_added";
+        const newFmts=hasFmt?exFmts:[...exFmts,fmt];
+        const merged={...ex,
+          ...(ex.status==="wishlist"?{cover:book.cover||ex.cover,isbn13:book.isbn13||ex.isbn13,isbn10:book.isbn10||ex.isbn10,pages:book.pages||ex.pages,description:book.description||ex.description}:{}),
+          id:ex.id,status:ex.status==="wishlist"?"owned":ex.status,addedAt:ex.addedAt,ownedFormats:newFmts,
+          bookFormat:ex.status==="wishlist"?fmt:ex.bookFormat,
+        };
+        return prev.map(b=>b.id===ex.id?merged:b);
+      }
+      const newBook={...book,status:"owned",addedAt:Date.now(),customShelves:[],readDates:[],highlights:[],ownedFormats:[fmt]};
       currentBooks=[newBook,...prev];
       return currentBooks;
     });
-    if(isUpgrade){showToast("📖 Moved from Wishlist to Library!");return;}
+    if(mergeResult==="wishlist_upgrade"){showToast("📖 Moved from Wishlist to Library!");return;}
+    if(mergeResult==="format_added"){showToast(`${FI[book.bookFormat||"physical"]} Format added to your existing entry!`);return;}
+    if(mergeResult==="already_owned")return; // silent — already in library
     try {
       const st=await fetchSeriesTitles(book, currentBooks||books);
       if(!st.length) return; // standalone book — stay silent
@@ -2245,6 +2284,20 @@ function App({ user }) {
         return prev;
       });
     } catch(e){console.error("fetchSeriesTitles error:",e);showToast("⚠️ Series check failed: "+e.message);}
+  }
+  async function findSeriesForBook(book) {
+    showToast("🔍 Looking up series…");
+    try{
+      const st=await fetchSeriesTitles(book,books);
+      if(!st.length){showToast("ℹ️ No series found for this book");return;}
+      setBooks(prev=>{
+        const exIds=new Set(prev.map(b=>b.id)),exT=new Set(prev.map(b=>b.title.toLowerCase()));
+        const newOnes=st.filter(sb=>!exIds.has(sb.id)&&!exT.has(sb.title.toLowerCase()));
+        if(newOnes.length>0){showToast(`📚 Found ${newOnes.length} series book${newOnes.length!==1?"s":""}!`);setTimeout(()=>setSeriesModal({newBook:book,seriesBooks:newOnes}),400);}
+        else showToast("ℹ️ All series books already in library");
+        return prev;
+      });
+    }catch(e){console.error("findSeriesForBook error:",e);showToast("⚠️ Series lookup failed");}
   }
   function addSeriesBooks(sel){
     if(!sel.length)return;
@@ -2490,7 +2543,7 @@ function App({ user }) {
 
     {/* All modals */}
     {showAdd        &&<Sheet onClose={()=>setShowAdd(false)}><AddModal onAdd={addBook} onClose={()=>setShowAdd(false)} onOpenImport={()=>{setShowAdd(false);setTimeout(()=>setShowImport(true),200);}}/></Sheet>}
-    {selected       &&<Sheet onClose={()=>setSelected(null)} noPad><DetailModal book={selected} onClose={()=>setSelected(null)} onUpdate={b=>{updateBook(b);setSelected(null);}} onDelete={deleteBook} onLogProgress={b=>{setProgressBook(b);setSelected(null);}} onLogHighlights={b=>{setHighlightBook(b);setSelected(null);}} onLogLoan={b=>{setLoanBook(b);setSelected(null);}} customShelves={customShelves}/></Sheet>}
+    {selected       &&<Sheet onClose={()=>setSelected(null)} noPad><DetailModal book={selected} onClose={()=>setSelected(null)} onUpdate={b=>{updateBook(b);setSelected(null);}} onDelete={deleteBook} onLogProgress={b=>{setProgressBook(b);setSelected(null);}} onLogHighlights={b=>{setHighlightBook(b);setSelected(null);}} onLogLoan={b=>{setLoanBook(b);setSelected(null);}} onFindSeries={b=>{setSelected(null);findSeriesForBook(b);}} customShelves={customShelves}/></Sheet>}
     {showExport     &&<Sheet onClose={()=>setShowExport(false)}><WishlistExport books={books} onClose={()=>setShowExport(false)}/></Sheet>}
     {showGoalSetup  &&<Sheet onClose={()=>setShowGoalSetup(false)}><GoalSetup goal={readingGoal} onSave={setReadingGoal} onClose={()=>setShowGoalSetup(false)}/></Sheet>}
     {progressBook   &&<Sheet onClose={()=>setProgressBook(null)}><ReadingProgressModal book={progressBook} onSave={b=>{updateBook(b);setProgressBook(null);}} onClose={()=>setProgressBook(null)}/></Sheet>}
