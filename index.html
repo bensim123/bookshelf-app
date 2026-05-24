@@ -202,6 +202,15 @@ const save = (k, v) => {
   }, k === 'books' ? 600 : 0);
 };
 
+// ─── Anthropic API helpers ───────────────────────────────────────────────────
+const getClaudeHeaders = () => ({
+  "Content-Type": "application/json",
+  "x-api-key": localStorage.getItem('bs_apiKey') || '',
+  "anthropic-version": "2023-06-01",
+  "anthropic-dangerous-direct-browser-calls": "true"
+});
+const hasApiKey = () => Boolean(localStorage.getItem('bs_apiKey'));
+
 // Best-effort flush on page unload
 window.addEventListener('beforeunload', () => {
   if (!_userDocRef || !_userCache) return;
@@ -526,7 +535,7 @@ Authors: ${[...new Set(ro.map(b=>b.authors?.[0]).filter(Boolean))].slice(0,12).j
 Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price.
 Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:5000,messages:[{role:"user",content:prompt}]})});
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:getClaudeHeaders(),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:5000,messages:[{role:"user",content:prompt}]})});
   const d=await r.json();
   const text=(d?.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim();
   const wlSet=new Set(books.map(b=>b.title.toLowerCase()));
@@ -537,7 +546,7 @@ async function aiMoodSuggest(mood,books) {
   const prompt=`Reader wants: "${mood}". They've enjoyed: ${ro.join(", ")||"various"}.
 Suggest 8 books matching this mood. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:getClaudeHeaders(),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
   const d=await r.json();
   const text=(d?.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim();
   return JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
@@ -785,7 +794,7 @@ function BarcodeScanner({onDetected,onClose}) {
   const [status,setStatus]=useState("Starting camera…");
   useEffect(()=>{
     let active=true;
-    (async()=>{try{const {BrowserMultiFormatReader}=await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");const reader=new BrowserMultiFormatReader();const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});if(!active){stream.getTracks().forEach(t=>t.stop());return;}streamRef.current=stream;if(vidRef.current)vidRef.current.srcObject=stream;setStatus("Point camera at ISBN barcode");reader.decodeFromStream(stream,vidRef.current,result=>{if(result&&active){const t=result.getText().replace(/-/g,"");if(/^\d{10,13}$/.test(t)){active=false;onDetected(t);}}});}catch{setStatus("Camera unavailable — please allow camera access.");}})();
+    (async()=>{try{const {BrowserMultiFormatReader}=await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");const reader=new BrowserMultiFormatReader();const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});if(!active){stream.getTracks().forEach(t=>t.stop());return;}streamRef.current=stream;if(vidRef.current)vidRef.current.srcObject=stream;setStatus("Point camera at ISBN barcode");reader.decodeFromStream(stream,vidRef.current,result=>{if(result&&active){const t=result.getText().replace(/-/g,"");if(/^\d{13}$/.test(t)||/^\d{9}[\dX]$/i.test(t)){active=false;onDetected(t);}}});}catch{setStatus("Camera unavailable — please allow camera access.");}})();
     return()=>{active=false;streamRef.current?.getTracks().forEach(t=>t.stop());};
   },[]);
   return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}><div style={{position:"relative",width:"100%",borderRadius:14,overflow:"hidden",background:"#000",aspectRatio:"4/3"}}><video ref={vidRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}}/><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}><div style={{width:"78%",height:90,border:`2px solid ${P.accent}`,borderRadius:10,boxShadow:`0 0 0 2000px rgba(0,0,0,.55), 0 0 20px ${P.accentGlow}`}}/></div></div><p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:14}}>{status}</p><button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Cancel</button></div>;
@@ -796,7 +805,8 @@ function CoverScanner({onDetected,onClose}) {
     if(!file)return;setBusy(true);setMsg("Identifying cover with AI…");
     try{
       const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(file);});
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:'Identify this book cover. Respond ONLY with JSON (no markdown): {"title":"","author":"","isbn":"","language":"en"}. Language should be the 2-letter ISO code of the book\'s text. If unidentifiable: {"error":"..."}'}]}]})});
+      if(!hasApiKey()){setMsg("API key not set — tap ⚙️ in the header to add your Anthropic API key.");setBusy(false);return;}
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:getClaudeHeaders(),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:'Identify this book cover. Respond ONLY with JSON (no markdown): {"title":"","author":"","isbn":"","language":"en"}. Language should be the 2-letter ISO code of the book\'s text. If unidentifiable: {"error":"..."}'}]}]})});
       const rd=await resp.json();
       const txt=rd?.content?.[0]?.text||"{}";
       const result=JSON.parse(txt.replace(/```json|```/g,"").trim());
@@ -1243,8 +1253,8 @@ function SuggestScreen({books,onAddWishlist}) {
   const [sel,setSel]=useState(null),[shareOpen,setShareOpen]=useState(false),[gen,setGen]=useState(false);
   const [moodMode,setMoodMode]=useState(false),[mood,setMood]=useState("");
   const owned=books.filter(b=>["read","owned","reading"].includes(b.status));
-  async function generate(){setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
-  async function generateMood(){if(!mood.trim())return;setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
+  async function generate(){if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your Anthropic API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
+  async function generateMood(){if(!mood.trim())return;if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your Anthropic API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   function shareText(){
     const body=sugs.slice(0,5).map((b,i)=>`${i+1}. ${b.title} by ${b.authors?.[0]} ${pLinks(b).amazon}`).join("\n")+"\n(more in Bookshelf)";
     nativeShare("My Book Suggestions",body,()=>window.open(`sms:?&body=${encodeURIComponent(body)}`));
@@ -1924,6 +1934,7 @@ function App({ user }) {
   const [showImport,setShowImport]     = useState(false);
   const [shelfFilter,setShelfFilter]   = useState("all");
   const [showBackup,setShowBackup]     = useState(false);
+  const [showSettings,setShowSettings] = useState(false);
   const [savedViews,setSavedViews]     = useState(()=>load("savedViews",[]));
   const [activeView,setActiveView]     = useState(null);
   const [showSavedViews,setShowSavedViews] = useState(false);
@@ -2086,6 +2097,11 @@ function App({ user }) {
               </button>
               {/* Backup */}
               <BackupBtn onOpen={()=>setShowBackup(true)}/>
+              {/* Settings */}
+              <button onClick={()=>setShowSettings(true)} title="Settings"
+                style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>
+                ⚙️
+              </button>
               {/* User avatar / sign out */}
               <button onClick={()=>firebase.auth().signOut()} title={`Sign out (${user?.displayName||user?.email||''})`}
                 style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0,flexShrink:0}}>
@@ -2230,6 +2246,7 @@ function App({ user }) {
     {showBackup     &&<Sheet onClose={()=>setShowBackup(false)}><BackupModal books={books} shelves={customShelves} goal={readingGoal} earnedAchs={earnedAchs} onRestore={restoreFromBackup} onClose={()=>setShowBackup(false)}/></Sheet>}
     {showOnboarding &&<Sheet onClose={()=>{save("onboarded",true);setShowOnboarding(false);}}><OnboardingSheet onDone={()=>{save("onboarded",true);setShowOnboarding(false);}}/></Sheet>}
     {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SavedViewsModal views={savedViews} onSave={addSavedView} onDelete={deleteSavedView} currentFilters={{status:filterStatus,genre:filterGenre,shelf:shelfFilter,sort:sortBy}} onClose={()=>setShowSavedViews(false)}/></Sheet>}
+    {showSettings   &&<Sheet onClose={()=>setShowSettings(false)}><SettingsModal onClose={()=>setShowSettings(false)}/></Sheet>}
   </div>;
 }
 
@@ -2240,6 +2257,40 @@ function LoadingScreen() {
     <div style={{minHeight:"100vh",background:DARK.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:20}}>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:36,fontWeight:900,color:DARK.text,letterSpacing:-.5}}>Bookshelf</div>
       <div style={{width:36,height:36,border:`3px solid ${DARK.accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
+    </div>
+  );
+}
+
+function SettingsModal({onClose}) {
+  const [key,setKey] = useState(localStorage.getItem('bs_apiKey')||'');
+  const [saved,setSaved] = useState(false);
+  function save() {
+    localStorage.setItem('bs_apiKey', key.trim());
+    setSaved(true);
+    setTimeout(()=>setSaved(false),2000);
+  }
+  return (
+    <div style={{padding:"4px 0"}}>
+      <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,margin:"0 0 16px"}}>⚙️ Settings</h3>
+      <div style={{background:P.bgSurface,borderRadius:14,padding:"16px",border:`1px solid ${P.border}`,marginBottom:16}}>
+        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,margin:"0 0 4px"}}>Anthropic API Key</p>
+        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,lineHeight:1.5,margin:"0 0 12px"}}>Required for Cover Photo scan and AI Suggestions. Get a free key at <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" style={{color:P.accent}}>console.anthropic.com</a>.</p>
+        <input
+          type="password"
+          value={key}
+          onChange={e=>setKey(e.target.value)}
+          placeholder="sk-ant-…"
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:`1px solid ${P.border}`,background:P.bgCard,color:P.text,fontFamily:"'Nunito',sans-serif",fontSize:13,boxSizing:"border-box",outline:"none"}}
+        />
+      </div>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={save} style={{flex:1,padding:"11px",borderRadius:12,background:saved?"#10b981":P.accent,color:"#fff",border:"none",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer",transition:"background .2s"}}>
+          {saved?"✓ Saved":"Save"}
+        </button>
+        <button onClick={onClose} style={{flex:1,padding:"11px",borderRadius:12,background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+          Close
+        </button>
+      </div>
     </div>
   );
 }
