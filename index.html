@@ -203,7 +203,7 @@ const save = (k, v) => {
 };
 
 // ─── Gemini API helpers (via Cloudflare Worker proxy) ────────────────────────
-const AI_PROXY_URL = "REPLACE_WITH_YOUR_WORKER_URL";
+const AI_PROXY_URL = "https://calm-butterfly-1f95.bensim123.workers.dev/";
 
 async function geminiText(prompt, maxTokens=5000) {
   const r = await fetch(AI_PROXY_URL, {method:"POST",headers:{"Content-Type":"application/json"},
