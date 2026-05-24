@@ -586,9 +586,14 @@ async function fetchByISBN(isbn) {
   // Google Books (better coverage, especially newer/self-published)
   const gb1=await fetchByISBNGoogle(isbn); if(gb1)return gb1;
   if(alt){const gb2=await fetchByISBNGoogle(alt);if(gb2)return gb2;}
-  // Last resort: text search by ISBN string
+  // Last resort: text search by ISBN string on OL then Google Books (plain text, different indexing)
   const res=await olSearch(isbn,1,null).catch(()=>null);
-  return res?.[0]||null;
+  if(res?.[0]) return res[0];
+  try{
+    const gbPlain=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(isbn)}&maxResults=1`);
+    if(gbPlain.ok){const d=await gbPlain.json();const p=d.items?.[0]?parseGoogleVolume(d.items[0]):null;if(p)return p;}
+  }catch{}
+  return null;
 }
 function pLinks(book) {
   const q=encodeURIComponent(`${book.title} ${book.authors?.[0]||""}`);
@@ -1026,8 +1031,10 @@ function SearchPanel({onAdd}) {
       if(books.length===0){
         const textQ=isISBN?clean:query;
         const olBooks=await olSearch(textQ,12,null);
-        // Google Books parallel fetch
-        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${isISBN?`isbn:${clean}`:encodeURIComponent(query)}&maxResults=12`).catch(()=>null);
+        // Google Books: for ISBNs that failed isbn: lookup, try plain text (different indexing)
+        // For normal queries, use the user's original text
+        const gbQ=isISBN?encodeURIComponent(clean):encodeURIComponent(query);
+        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).catch(()=>null);
         const gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
         const seen=new Set(olBooks.map(b=>b.title.toLowerCase()));
         books=[...olBooks,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
