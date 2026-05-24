@@ -632,7 +632,23 @@ function extractSeries(book) {
 }
 // existingBooks: full library so we can exclude already-added titles (any status)
 async function fetchSeriesTitles(book, existingBooks=[]) {
-  const sn=extractSeries(book), author=book.authors?.[0]||"";
+  let sn=extractSeries(book);
+  const author=book.authors?.[0]||"";
+  if(!sn&&!author) return [];
+  // If the title has no parenthetical series hint, ask AI — series may have multiple authors
+  let aiSeries=false;
+  if(!sn) {
+    try {
+      const raw=await aiText(
+        `What series is the book "${book.title}" by ${author} part of? Reply with ONLY the series name and nothing else (e.g. "Harry Potter", "Dune", "Legacy of the Force"). If it is a standalone novel, reply "none".`,
+        40
+      );
+      const s=raw.trim().replace(/["""'']/g,"").split("\n")[0].trim();
+      if(s&&s.toLowerCase()!=="none"&&s.toLowerCase()!=="standalone"&&s.split(" ").length<=8){
+        sn=s; aiSeries=true;
+      }
+    } catch {}
+  }
   if(!sn&&!author) return [];
   // Exclude: scanned book itself + any book already in library (any status incl. wishlist)
   const exTitles = new Set([book.title.toLowerCase(), ...existingBooks.map(b=>b.title.toLowerCase())]);
@@ -641,16 +657,22 @@ async function fetchSeriesTitles(book, existingBooks=[]) {
   // Preferred binding for physical books; "unknown" means no preference
   const preferredBinding = book.bookFormat==="physical" ? (book.bookBinding||"unknown") : null;
   try {
-    const res = await olSearch(sn ? `${sn} ${author}` : `${book.title} ${author}`, 32, bookLang);
+    const res = await olSearch(sn ? `${sn}` : `${book.title} ${author}`, 32, bookLang);
     const aLast=author.split(" ").pop().toLowerCase(), sLow=sn?.toLowerCase()||"";
+    // Key words from series name (for matching when OL titles contain the series in parentheses)
+    const stop=new Set(["the","a","an","of","and","in","to","for","with","star"]);
+    const tok=t=>new Set(t.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(" ").filter(w=>w.length>3&&!stop.has(w)));
+    const seriesTok=tok(sLow);
     const matched = res.filter(b=>{
       if(exIds.has(b.id)) return false;
       if(exTitles.has(b.title.toLowerCase())) return false;
-      if((b.authors?.[0]||"").split(" ").pop().toLowerCase()!==aLast)return false;
+      // Relax author filter for AI-detected series (multi-author series like Legacy of the Force)
+      if(!aiSeries&&(b.authors?.[0]||"").split(" ").pop().toLowerCase()!==aLast) return false;
       if(b.language && b.language !== bookLang) return false;
-      if(sLow){const bp=b.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i)?.[1]?.toLowerCase()||"";if(bp&&bp.includes(sLow.slice(0,6)))return true;}
-      const stop=new Set(["the","a","an","of","and","in","to","for","with"]);
-      const tok=t=>new Set(t.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(" ").filter(w=>w.length>3&&!stop.has(w)));
+      const bp=b.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i)?.[1]?.toLowerCase()||"";
+      // Series name check: parenthetical in OL title overlaps with known series name
+      if(sLow&&bp){const bpTok=tok(bp);if([...seriesTok].some(w=>bpTok.has(w)))return true;}
+      // Fallback: title word overlap with scanned book's title
       return [...tok(b.title)].some(w=>tok(book.title).has(w));
     }).slice(0,15);
     // If we have a binding preference and a workKey, upgrade each result's cover/ISBN
