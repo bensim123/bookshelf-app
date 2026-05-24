@@ -226,22 +226,16 @@ const save = (k, v) => {
   }, k === 'books' ? 600 : 0);
 };
 
-// ─── Gemini API helpers (via Cloudflare Worker proxy) ────────────────────────
+// ─── Groq AI helpers (via Cloudflare Worker proxy) ───────────────────────────
 const AI_PROXY_URL = "https://calm-butterfly-1f95.bensim123.workers.dev/";
+const GROQ_MODEL   = "llama-3.3-70b-versatile";
 
-async function geminiText(prompt, maxTokens=5000) {
+async function aiText(prompt, maxTokens=5000) {
   const r = await fetch(AI_PROXY_URL, {method:"POST",headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})});
+    body: JSON.stringify({model:GROQ_MODEL,messages:[{role:"user",content:prompt}],max_tokens:maxTokens})});
   const d = await r.json();
-  if(d.error) throw new Error(d.error.message);
-  return d?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-}
-async function geminiVision(b64, mimeType, prompt, maxTokens=400) {
-  const r = await fetch(AI_PROXY_URL, {method:"POST",headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({contents:[{parts:[{inlineData:{mimeType,data:b64}},{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})});
-  const d = await r.json();
-  if(d.error) throw new Error(d.error.message);
-  return d?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
+  return d?.choices?.[0]?.message?.content || "";
 }
 
 // Best-effort flush on page unload
@@ -571,7 +565,7 @@ Authors: ${[...new Set(ro.map(b=>b.authors?.[0]).filter(Boolean))].slice(0,12).j
 Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price.
 Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
-  const text=(await geminiText(prompt,5000)).replace(/```json|```/g,"").trim();
+  const text=(await aiText(prompt,5000)).replace(/```json|```/g,"").trim();
   const wlSet=new Set(books.map(b=>b.title.toLowerCase()));
   return JSON.parse(text).filter(s=>s.title&&!wlSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
 }
@@ -580,7 +574,7 @@ async function aiMoodSuggest(mood,books) {
   const prompt=`Reader wants: "${mood}". They've enjoyed: ${ro.join(", ")||"various"}.
 Suggest 8 books matching this mood. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
-  const text=(await geminiText(prompt,2000)).replace(/```json|```/g,"").trim();
+  const text=(await aiText(prompt,2000)).replace(/```json|```/g,"").trim();
   return JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
 }
 
@@ -832,22 +826,14 @@ function BarcodeScanner({onDetected,onClose}) {
   return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}><div style={{position:"relative",width:"100%",borderRadius:14,overflow:"hidden",background:"#000",aspectRatio:"4/3"}}><video ref={vidRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}}/><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}><div style={{width:"78%",height:90,border:`2px solid ${P.accent}`,borderRadius:10,boxShadow:`0 0 0 2000px rgba(0,0,0,.55), 0 0 20px ${P.accentGlow}`}}/></div></div><p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:14}}>{status}</p><button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Cancel</button></div>;
 }
 function CoverScanner({onDetected,onClose}) {
-  const fileRef=useRef(null);const [busy,setBusy]=useState(false);const [msg,setMsg]=useState("");
-  async function handle(file){
-    if(!file)return;setBusy(true);setMsg("Identifying cover with AI…");
-    try{
-      const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(file);});
-      const txt=await geminiVision(b64,"image/jpeg",'Identify this book cover. Respond ONLY with JSON (no markdown): {"title":"","author":"","isbn":"","language":"en"}. Language should be the 2-letter ISO code of the book\'s text. If unidentifiable: {"error":"..."}',400);
-      const result=JSON.parse(txt.replace(/```json|```/g,"").trim());
-      if(result.error){setMsg("Couldn't identify — try a clearer photo.");setBusy(false);return;}
-      const lang=result.language||"en";
-      // Search in detected language first; fall back to no language filter
-      let books=await olSearch(`${result.isbn||""} ${result.title} ${result.author}`.trim(),5,lang);
-      if(!books.length) books=await olSearch(`${result.title} ${result.author}`.trim(),5,null);
-      onDetected(books[0]||{id:crypto.randomUUID(),title:result.title,authors:[result.author],cover:null,coverCandidates:[],isbn13:"",isbn10:"",genre:"",year:"",pages:"",description:"",language:lang,status:"owned",rating:0,notes:"",addedAt:Date.now(),customShelves:[],readDates:[],highlights:[]});
-    }catch{setMsg("Error — please try again.");setBusy(false);}
-  }
-  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20}}><div onClick={()=>fileRef.current?.click()} style={{width:"100%",aspectRatio:"3/2",border:`2px dashed ${P.border}`,borderRadius:16,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,cursor:"pointer",background:P.bgSurface,transition:"border-color .2s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}><span style={{fontSize:52}}>{busy?"⏳":"📸"}</span><span style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:15}}>{busy?msg:"Tap to take or upload a photo"}</span><span style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:12}}>AI identifies the book</span></div><input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handle(e.target.files[0])}/><button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Cancel</button></div>;
+  return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,padding:"8px 0"}}>
+    <div style={{width:"100%",aspectRatio:"3/2",border:`2px dashed ${P.border}`,borderRadius:16,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,background:P.bgSurface}}>
+      <span style={{fontSize:48}}>📸</span>
+      <span style={{fontFamily:"'Nunito',sans-serif",color:P.text,fontSize:15,fontWeight:700,textAlign:"center",padding:"0 24px"}}>Cover photo scan unavailable</span>
+      <span style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,textAlign:"center",lineHeight:1.5,padding:"0 24px"}}>Use the <strong style={{color:P.accent}}>Barcode</strong> tab to scan a ISBN barcode, or the <strong style={{color:P.accent}}>Search</strong> tab to find by title or author.</span>
+    </div>
+    <button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Close</button>
+  </div>;
 }
 
 // ─── Cover Picker ─────────────────────────────────────────────────────────────

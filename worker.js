@@ -1,11 +1,11 @@
 /**
  * Bookshelf AI Proxy — Cloudflare Worker
  *
- * Proxies requests from the Bookshelf app to the Google Gemini API.
- * The GEMINI_API_KEY is stored as a Worker secret — never exposed to the browser.
+ * Proxies requests from the Bookshelf app to the Groq API.
+ * The GROQ_API_KEY is stored as a Worker secret — never exposed to the browser.
  *
  * Deploy to Cloudflare Workers (free tier: 100,000 req/day).
- * Add secret: GEMINI_API_KEY = your key from aistudio.google.com
+ * Add secret: GROQ_API_KEY = your key from console.groq.com
  */
 
 const ALLOWED_ORIGINS = new Set([
@@ -13,8 +13,7 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",
 ]);
 
-const GEMINI_MODEL = "gemini-2.0-flash";
-const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.has(origin) ? origin : "https://bensim123.github.io";
@@ -40,12 +39,14 @@ export default {
 
     try {
       const body = await request.json();
-      const url  = `${GEMINI_URL}?key=${env.GEMINI_API_KEY}`;
 
-      const upstream = await fetch(url, {
+      const upstream = await fetch(GROQ_URL, {
         method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${env.GROQ_API_KEY}`,
+        },
+        body: JSON.stringify(body),
       });
 
       const data = await upstream.json();
