@@ -659,20 +659,28 @@ async function fetchSeriesTitles(book, existingBooks=[]) {
   try {
     const res = await olSearch(sn ? `${sn}` : `${book.title} ${author}`, 32, bookLang);
     const aLast=author.split(" ").pop().toLowerCase(), sLow=sn?.toLowerCase()||"";
-    // Key words from series name (for matching when OL titles contain the series in parentheses)
-    const stop=new Set(["the","a","an","of","and","in","to","for","with","star"]);
+    const stop=new Set(["the","a","an","of","and","in","to","for","with","star","wars"]);
     const tok=t=>new Set(t.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(" ").filter(w=>w.length>3&&!stop.has(w)));
     const seriesTok=tok(sLow);
     const matched = res.filter(b=>{
       if(exIds.has(b.id)) return false;
       if(exTitles.has(b.title.toLowerCase())) return false;
-      // Relax author filter for AI-detected series (multi-author series like Legacy of the Force)
+      // OL sometimes prefixes the full series: "Star Wars - Legacy of the Force - Invincible"
+      // Exclude if the last dash-segment matches the scanned book's title
+      const dashParts=b.title.split(/\s*[-–]\s*/);
+      if(dashParts.length>1&&exTitles.has(dashParts[dashParts.length-1].toLowerCase().trim()))return false;
+      // Relax author filter for AI-detected series (multi-author series)
       if(!aiSeries&&(b.authors?.[0]||"").split(" ").pop().toLowerCase()!==aLast) return false;
       if(b.language && b.language !== bookLang) return false;
-      const bp=b.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i)?.[1]?.toLowerCase()||"";
-      // Series name check: parenthetical in OL title overlaps with known series name
-      if(sLow&&bp){const bpTok=tok(bp);if([...seriesTok].some(w=>bpTok.has(w)))return true;}
-      // Fallback: title word overlap with scanned book's title
+      if(sLow&&seriesTok.size>0){
+        const titleTok=tok(b.title);
+        // Match: series key words appear in OL title (handles "Star Wars - Legacy of the Force - X")
+        if([...seriesTok].some(w=>titleTok.has(w)))return true;
+        // Match: parenthetical format "(Legacy of the Force, #N)"
+        const bp=b.title.match(/\(([^,)]+?)(?:\s*[,#]\s*\d+)?\)/i)?.[1]?.toLowerCase()||"";
+        if(bp){const bpTok=tok(bp);if([...seriesTok].some(w=>bpTok.has(w)))return true;}
+      }
+      // Fallback: title word overlap with scanned book
       return [...tok(b.title)].some(w=>tok(book.title).has(w));
     }).slice(0,15);
     // If we have a binding preference and a workKey, upgrade each result's cover/ISBN
@@ -958,8 +966,38 @@ function BarcodeScanner({onDetected,onClose}) {
   const vidRef=useRef(null),streamRef=useRef(null);
   const [status,setStatus]=useState("Starting camera…");
   useEffect(()=>{
-    let active=true;
-    (async()=>{try{const {BrowserMultiFormatReader}=await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");const reader=new BrowserMultiFormatReader();const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});if(!active){stream.getTracks().forEach(t=>t.stop());return;}streamRef.current=stream;if(vidRef.current)vidRef.current.srcObject=stream;setStatus("Point camera at ISBN barcode");reader.decodeFromStream(stream,vidRef.current,result=>{if(result&&active){const t=result.getText().replace(/-/g,"");if(/^\d{13}$/.test(t)||/^\d{9}[\dX]$/i.test(t)){active=false;onDetected(t);}}});}catch{setStatus("Camera unavailable — please allow camera access.");}})();
+    let active=true, pending=null, confirmCount=0;
+    (async()=>{
+      try{
+        const {BrowserMultiFormatReader}=await import("https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm");
+        // Request high-res back camera so small barcodes are readable
+        const stream=await navigator.mediaDevices.getUserMedia({
+          video:{facingMode:"environment",width:{ideal:1920},height:{ideal:1080}}
+        });
+        if(!active){stream.getTracks().forEach(t=>t.stop());return;}
+        streamRef.current=stream;
+        if(vidRef.current)vidRef.current.srcObject=stream;
+        // Give autofocus ~1s to settle before we start accepting results
+        setStatus("Focusing camera…");
+        await new Promise(r=>setTimeout(r,1000));
+        if(!active)return;
+        setStatus("Point at barcode — hold steady");
+        const reader=new BrowserMultiFormatReader();
+        reader.decodeFromStream(stream,vidRef.current,(result)=>{
+          if(!result||!active)return;
+          const t=result.getText().replace(/[^0-9X]/gi,"");
+          if(!/^\d{13}$/.test(t)&&!/^\d{9}[\dX]$/i.test(t))return;
+          if(t===pending){
+            confirmCount++;
+            if(confirmCount>=2){active=false;onDetected(t);}
+            // still holding — keep status message
+          } else {
+            pending=t; confirmCount=1;
+            setStatus("Hold steady…");
+          }
+        });
+      }catch{setStatus("Camera unavailable — please allow camera access.");}
+    })();
     return()=>{active=false;streamRef.current?.getTracks().forEach(t=>t.stop());};
   },[]);
   return <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16}}><div style={{position:"relative",width:"100%",borderRadius:14,overflow:"hidden",background:"#000",aspectRatio:"4/3"}}><video ref={vidRef} autoPlay playsInline muted style={{width:"100%",height:"100%",objectFit:"cover"}}/><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}><div style={{width:"78%",height:90,border:`2px solid ${P.accent}`,borderRadius:10,boxShadow:`0 0 0 2000px rgba(0,0,0,.55), 0 0 20px ${P.accentGlow}`}}/></div></div><p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:14}}>{status}</p><button onClick={onClose} style={{background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:20,padding:"9px 24px",fontFamily:"'Nunito',sans-serif",color:P.muted,cursor:"pointer"}}>Cancel</button></div>;
