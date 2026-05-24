@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v20';
+const CACHE='bookshelf-v21';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v15 ok');
+        console.log('SW v20 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -891,7 +891,7 @@ function SeriesModal({newBook,seriesBooks,onAddSelected,onDismiss}) {
   return <div>
     <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:36,marginBottom:8}}>📖</div><h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,margin:"0 0 6px",fontSize:21}}>{sn?`Part of "${sn}"`:"Part of a Series!"}</h3><p style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,lineHeight:1.6}}>Found {seriesBooks.length} other book{seriesBooks.length!==1?"s":""} in this series.<br/>Add them to your wishlist?</p></div>
     <div style={{display:"flex",gap:10,marginBottom:16}}><button onClick={()=>setChecked(new Set(seriesBooks.map(b=>b.id)))} style={{flex:1,background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:10,padding:"7px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,color:P.textLt,cursor:"pointer"}}>Select All</button><button onClick={()=>setChecked(new Set())} style={{flex:1,background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:10,padding:"7px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,color:P.textLt,cursor:"pointer"}}>Deselect All</button></div>
-    <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",marginBottom:20,scrollbarWidth:"none"}}>{seriesBooks.map(b=><div key={b.id} onClick={()=>toggle(b.id)} style={{display:"flex",gap:10,padding:"9px 11px",background:checked.has(b.id)?P.bgSurface:P.bgCard,borderRadius:10,cursor:"pointer",border:`1.5px solid ${checked.has(b.id)?P.accent:P.border}`,transition:"all .15s"}}><div style={{width:40,height:56,borderRadius:6,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{b.cover?<img src={b.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>:<span style={{fontSize:18}}>📖</span>}</div><div style={{flex:1,minWidth:0}}><div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,lineHeight:1.3}}>{b.title}</div><div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:11,marginTop:2}}>{b.authors?.[0]}{b.year?` · ${b.year}`:""}</div></div><div style={{display:"flex",alignItems:"center",flexShrink:0}}><div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${checked.has(b.id)?P.accent:P.border}`,background:checked.has(b.id)?P.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{checked.has(b.id)&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}</div></div></div>)}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",marginBottom:20,scrollbarWidth:"none"}}>{seriesBooks.map(b=><div key={b.id} onClick={()=>toggle(b.id)} style={{display:"flex",gap:10,padding:"9px 11px",background:checked.has(b.id)?P.bgSurface:P.bgCard,borderRadius:10,cursor:"pointer",border:`1.5px solid ${checked.has(b.id)?P.accent:P.border}`,transition:"all .15s"}}><div style={{width:40,height:56,borderRadius:6,overflow:"hidden",flexShrink:0}}><CoverImg src={b.cover} isbn13={b.isbn13} isbn10={b.isbn10} alt={b.title} style={{width:40,height:56,objectFit:"cover",borderRadius:6}}/></div><div style={{flex:1,minWidth:0}}><div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,lineHeight:1.3}}>{b.title}</div><div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:11,marginTop:2}}>{b.authors?.[0]}{b.year?` · ${b.year}`:""}</div></div><div style={{display:"flex",alignItems:"center",flexShrink:0}}><div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${checked.has(b.id)?P.accent:P.border}`,background:checked.has(b.id)?P.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{checked.has(b.id)&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}</div></div></div>)}</div>
     <div style={{display:"flex",flexDirection:"column",gap:10}}><button onClick={()=>onAddSelected(selected)} disabled={selected.length===0} style={{background:selected.length>0?`linear-gradient(135deg,${P.accent},${P.accentDk})`:"#d4b896",color:"#fff",border:"none",borderRadius:14,padding:"14px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:selected.length>0?"pointer":"default"}}>Add {selected.length} Book{selected.length!==1?"s":""} to Wishlist</button><button onClick={onDismiss} style={{background:"transparent",color:P.muted,border:"none",borderRadius:14,padding:"10px",fontFamily:"'Nunito',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>No thanks</button></div>
   </div>;
 }
@@ -946,7 +946,7 @@ function BarcodeScanner({onDetected,onClose}) {
         setStatus("Point at barcode — hold steady");
         const reader=new BrowserMultiFormatReader();
         reader.decodeFromStream(stream,vidRef.current,(result)=>{
-          if(!result||!active)return;
+          if(!result||result instanceof Error||!active)return;
           const t=result.getText().replace(/[^0-9X]/gi,"");
           if(!/^\d{13}$/.test(t)&&!/^\d{9}[\dX]$/i.test(t))return;
           if(t===pending){
@@ -1921,7 +1921,7 @@ function OnboardingSheet({onDone}) {
   const [step,setStep]=useState(0);
   const steps=[
     {icon:"📚",title:"Welcome to Bookshelf",body:"Your personal reading library. Track every book you own, read, and want to read — all in one place."},
-    {icon:"➕",title:"Add Books 3 Ways",body:"Scan a barcode with your camera, take a photo of the cover for AI recognition, or search by title or author."},
+    {icon:"➕",title:"Add Books 2 Ways",body:"Scan a barcode with your camera for instant lookup, or search by title, author, or ISBN to find any book."},
     {icon:"⭐",title:"Rate & Reflect",body:"Leave star ratings, personal notes, and highlights. Track your reading progress page by page."},
     {icon:"✨",title:"Discover & Explore",body:"Get 25 personalized recommendations based on your library, or ask for books by mood."},
   ];
@@ -2230,10 +2230,9 @@ function App({ user }) {
       return currentBooks;
     });
     if(isUpgrade){showToast("📖 Moved from Wishlist to Library!");return;}
-    showToast("📚 Checking for series…");
     try {
       const st=await fetchSeriesTitles(book, currentBooks||books);
-      if(!st.length){showToast("ℹ️ No series found");return;}
+      if(!st.length) return; // standalone book — stay silent
       setBooks(prev=>{
         const exIds=new Set(prev.map(b=>b.id)),exT=new Set(prev.map(b=>b.title.toLowerCase()));
         const newOnes=st.filter(sb=>!exIds.has(sb.id)&&!exT.has(sb.title.toLowerCase()));
