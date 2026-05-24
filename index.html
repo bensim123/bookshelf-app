@@ -575,7 +575,7 @@ function _mergeSug(sug,real){
     pages:real.pages||sug.pages||"",publisher:real.publisher||sug.publisher||""};
 }
 
-// Multi-source ISBN lookup: OL → OL(alt format) → Google Books → text search
+// Multi-source ISBN lookup: OL → OL(alt format) → Google Books → plain-text → AI bridge
 async function fetchByISBN(isbn) {
   isbn=isbn.replace(/[^0-9X]/gi,"").trim();
   if(!isbn)return null;
@@ -586,12 +586,33 @@ async function fetchByISBN(isbn) {
   // Google Books (better coverage, especially newer/self-published)
   const gb1=await fetchByISBNGoogle(isbn); if(gb1)return gb1;
   if(alt){const gb2=await fetchByISBNGoogle(alt);if(gb2)return gb2;}
-  // Last resort: text search by ISBN string on OL then Google Books (plain text, different indexing)
+  // Plain text search by ISBN number (different indexing than isbn: prefix)
   const res=await olSearch(isbn,1,null).catch(()=>null);
   if(res?.[0]) return res[0];
   try{
     const gbPlain=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(isbn)}&maxResults=1`);
     if(gbPlain.ok){const d=await gbPlain.json();const p=d.items?.[0]?parseGoogleVolume(d.items[0]):null;if(p)return p;}
+  }catch{}
+  // AI bridge: ask Groq to identify the book by ISBN, then do a real title search
+  try{
+    const raw=await aiText(
+      `What book has ISBN ${isbn}? Reply with ONLY a JSON object and nothing else: {"title":"...","authors":["..."],"year":"..."}. If you do not know this specific ISBN, reply with {"title":null}.`,
+      120
+    );
+    const match=raw.match(/\{[\s\S]*\}/);
+    if(match){
+      const info=JSON.parse(match[0]);
+      if(info.title){
+        const author=info.authors?.[0]||"";
+        // Try Google Books by title+author
+        const q=`intitle:${encodeURIComponent(info.title)}${author?`+inauthor:${encodeURIComponent(author)}`:""}`;
+        const gbT=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`).catch(()=>null);
+        if(gbT?.ok){const d=await gbT.json();const p=d.items?.[0]?parseGoogleVolume(d.items[0]):null;if(p)return p;}
+        // Try OL by title+author
+        const olT=await olSearch(`${info.title} ${author}`,1,null).catch(()=>null);
+        if(olT?.[0]) return olT[0];
+      }
+    }
   }catch{}
   return null;
 }
