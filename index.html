@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v14';
+const CACHE='bookshelf-v15';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -87,11 +87,12 @@ self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>Promi
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',e=>{
   const url=new URL(e.request.url);
-  const skip=['openlibrary.org','api.anthropic.com','fonts.gstatic.com','amazon.com','barnesandnoble.com','halfpricebooks.com'].some(h=>url.hostname.includes(h));
-  if(skip||e.request.method!=='GET')return;
-  e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{if(e.request.mode==='navigate')return caches.match('/index.html');});}));
+  const noCache=url.pathname.endsWith('manifest.json');
+  const skip=['openlibrary.org','fonts.gstatic.com','amazon.com','barnesandnoble.com','halfpricebooks.com','workers.dev'].some(h=>url.hostname.includes(h));
+  if(skip||noCache||e.request.method!=='GET')return;
+  e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{if(e.request.mode==='navigate')return caches.match('/bookshelf-app/');});}));
 });`;
-    try{const blob=new Blob([SW],{type:'application/javascript'});const url=URL.createObjectURL(blob);navigator.serviceWorker.register(url,{scope:'/'}).then(()=>{console.log('SW v14 ok');URL.revokeObjectURL(url);}).catch(()=>{});}catch(e){}
+    try{const blob=new Blob([SW],{type:'application/javascript'});const url=URL.createObjectURL(blob);navigator.serviceWorker.register(url,{scope:'/'}).then(()=>{console.log('SW v15 ok');URL.revokeObjectURL(url);}).catch(()=>{});}catch(e){}
   }
   // Apply saved theme before React renders (prevents flash)
   try{
@@ -1941,6 +1942,8 @@ function App({ user }) {
   const [showBackup,setShowBackup]     = useState(false);
   const [friends, setFriends] = useState(()=>load('friends',[]));
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [showFriends, setShowFriends] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [savedViews,setSavedViews]     = useState(()=>load("savedViews",[]));
   const [activeView,setActiveView]     = useState(null);
   const [showSavedViews,setShowSavedViews] = useState(false);
@@ -2138,12 +2141,13 @@ function App({ user }) {
               </button>
               {/* Backup */}
               <BackupBtn onOpen={()=>setShowBackup(true)}/>
-              {/* User avatar / sign out */}
-              <button onClick={()=>firebase.auth().signOut()} title={`Sign out (${user?.displayName||user?.email||''})`}
-                style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0,flexShrink:0}}>
+              {/* User avatar / profile menu */}
+              <button onClick={()=>setShowProfileMenu(true)} title={user?.displayName||user?.email||'Profile'}
+                style={{width:36,height:36,borderRadius:18,background:P.bgCard,border:`1px solid ${P.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",padding:0,flexShrink:0,position:"relative"}}>
                 {user?.photoURL
                   ? <img src={user.photoURL} style={{width:"100%",height:"100%",objectFit:"cover"}} referrerPolicy="no-referrer"/>
                   : <span style={{fontSize:16}}>👤</span>}
+                {pendingRequests.length>0&&<span style={{position:"absolute",top:-3,right:-3,background:"#ef4444",borderRadius:8,minWidth:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:"#fff",padding:"0 3px",fontFamily:"'Nunito',sans-serif",pointerEvents:"none"}}>{pendingRequests.length}</span>}
               </button>
             </div>
           </div>
@@ -2242,7 +2246,6 @@ function App({ user }) {
       {activeTab==="stats"&&<StatsScreen books={books} goal={readingGoal}/>}
       {activeTab==="achievements"&&<AchievementsScreen books={books} goal={readingGoal} earned={earnedAchs}/>}
       {activeTab==="suggestions"&&<SuggestScreen books={books} onAddWishlist={addToWishlist}/>}
-      {activeTab==="friends"&&<FriendsScreen user={user} friends={friends} setFriends={setFriends} pendingRequests={pendingRequests} setPendingRequests={setPendingRequests}/>}
     </div>
 
     {/* Achievement toast (top of screen) */}
@@ -2257,16 +2260,15 @@ function App({ user }) {
     {/* Bottom nav */}
     <nav style={{position:"fixed",bottom:0,left:0,right:0,height:70,background:P.navBg,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderTop:`1px solid ${P.border}`,zIndex:200,boxShadow:"0 -1px 0 rgba(99,102,241,.2),0 -20px 40px rgba(0,0,0,.4)"}}>
       <div className="app-inner" style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"space-around",position:"relative"}}>
-        {[["library","📚","🗂","Library"],["stats","📊","📊","Stats"],["achievements","🏆","🏅","Awards"],["suggestions","✨","💡","Suggest"],["friends","👥","👤","Friends"]].map(([tab,activeIcon,inactiveIcon,label])=>(
+        {[["library","📚","🗂","Library"],["stats","📊","📊","Stats"],["achievements","🏆","🏅","Awards"],["suggestions","✨","💡","Suggest"]].map(([tab,activeIcon,inactiveIcon,label])=>(
           <button key={tab} onClick={()=>setActiveTab(tab)}
             style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 0",color:activeTab===tab?P.accent:P.muted,flex:1,position:"relative"}}>
             <span style={{fontSize:20}}>{activeTab===tab?activeIcon:inactiveIcon}</span>
             <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>{label}</span>
             {tab==="achievements"&&earnedAchs.length>0&&<span style={{position:"absolute",top:4,right:"18%",background:P.gold,borderRadius:8,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,color:"#000",padding:"0 4px"}}>{earnedAchs.length}</span>}
-            {tab==="friends"&&pendingRequests.length>0&&<span style={{position:"absolute",top:4,right:"18%",background:"#ef4444",borderRadius:8,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,color:"#fff",padding:"0 4px"}}>{pendingRequests.length}</span>}
           </button>
         ))}
-        {activeTab==="library"&&<div style={{position:"absolute",bottom:14,left:"50%",transform:"translateX(-50%)"}}><button onClick={()=>setShowAdd(true)} style={{width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${P.accentLt},${P.accent})`,color:"#fff",border:"none",fontSize:24,cursor:"pointer",boxShadow:`0 0 0 1px ${P.accent}, 0 8px 32px ${P.accentGlow}, 0 4px 12px rgba(0,0,0,.5)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300}}>＋</button></div>}
+        {activeTab==="library"&&<div style={{position:"absolute",bottom:14,right:16}}><button onClick={()=>setShowAdd(true)} style={{width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${P.accentLt},${P.accent})`,color:"#fff",border:"none",fontSize:24,cursor:"pointer",boxShadow:`0 0 0 1px ${P.accent}, 0 8px 32px ${P.accentGlow}, 0 4px 12px rgba(0,0,0,.5)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300}}>＋</button></div>}
       </div>
     </nav>
 
@@ -2284,6 +2286,8 @@ function App({ user }) {
     {showBackup     &&<Sheet onClose={()=>setShowBackup(false)}><BackupModal books={books} shelves={customShelves} goal={readingGoal} earnedAchs={earnedAchs} onRestore={restoreFromBackup} onClose={()=>setShowBackup(false)}/></Sheet>}
     {showOnboarding &&<Sheet onClose={()=>{save("onboarded",true);setShowOnboarding(false);}}><OnboardingSheet onDone={()=>{save("onboarded",true);setShowOnboarding(false);}}/></Sheet>}
     {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SavedViewsModal views={savedViews} onSave={addSavedView} onDelete={deleteSavedView} currentFilters={{status:filterStatus,genre:filterGenre,shelf:shelfFilter,sort:sortBy}} onClose={()=>setShowSavedViews(false)}/></Sheet>}
+    {showFriends    &&<Sheet onClose={()=>setShowFriends(false)}><FriendsScreen user={user} friends={friends} setFriends={setFriends} pendingRequests={pendingRequests} setPendingRequests={setPendingRequests} onClose={()=>setShowFriends(false)}/></Sheet>}
+    {showProfileMenu&&<ProfileMenu user={user} pendingRequests={pendingRequests} onFriends={()=>{setShowProfileMenu(false);setShowFriends(true);}} onSignOut={()=>{setShowProfileMenu(false);firebase.auth().signOut();}} onClose={()=>setShowProfileMenu(false)}/>}
   </div>;
 }
 
@@ -2478,6 +2482,52 @@ function AddFriendModal({ user, friends, onClose, onRequestSent }) {
       <button onClick={onClose} style={{width:"100%",padding:"11px",borderRadius:12,background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",marginTop:4}}>
         Close
       </button>
+    </div>
+  );
+}
+
+// ─── Profile Menu ─────────────────────────────────────────────────────────────
+function ProfileMenu({ user, pendingRequests, onFriends, onSignOut, onClose }) {
+  const initials = (user?.displayName||user?.email||'?').slice(0,1).toUpperCase();
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,zIndex:500,background:"rgba(0,0,0,.55)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:P.bgCard,borderRadius:"24px 24px 0 0",padding:"0 0 calc(env(safe-area-inset-bottom) + 16px)",maxWidth:540,width:"100%",margin:"0 auto",boxShadow:"0 -8px 40px rgba(0,0,0,.5)",border:`1px solid ${P.border}`}}>
+        {/* Drag handle */}
+        <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
+          <div style={{width:36,height:4,borderRadius:2,background:P.border}}/>
+        </div>
+        {/* User info */}
+        <div style={{padding:"20px 24px 16px",display:"flex",alignItems:"center",gap:14}}>
+          <div style={{width:52,height:52,borderRadius:26,background:P.bgSurface,border:`2px solid ${P.border}`,overflow:"hidden",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            {user?.photoURL
+              ? <img src={user.photoURL} style={{width:"100%",height:"100%",objectFit:"cover"}} referrerPolicy="no-referrer"/>
+              : <span style={{fontSize:22,fontWeight:700,fontFamily:"'Nunito',sans-serif",color:P.accent}}>{initials}</span>}
+          </div>
+          <div style={{minWidth:0}}>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:P.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.displayName||user?.email?.split('@')[0]||'Reader'}</div>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email||''}</div>
+          </div>
+        </div>
+        {/* Divider */}
+        <div style={{height:1,background:P.border,margin:"0 24px"}}/>
+        {/* Menu items */}
+        <div style={{padding:"8px 16px"}}>
+          <button onClick={onFriends} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 12px",background:"none",border:"none",borderRadius:14,cursor:"pointer",textAlign:"left",color:P.text,transition:"background .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background=P.bgSurface} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span style={{fontSize:22,width:30,textAlign:"center"}}>👥</span>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700}}>Friends</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted}}>Compare libraries &amp; achievements</div>
+            </div>
+            {pendingRequests.length>0&&<span style={{background:"#ef4444",borderRadius:10,minWidth:20,height:20,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff",padding:"0 5px",fontFamily:"'Nunito',sans-serif"}}>{pendingRequests.length}</span>}
+          </button>
+          <button onClick={onSignOut} style={{width:"100%",display:"flex",alignItems:"center",gap:14,padding:"14px 12px",background:"none",border:"none",borderRadius:14,cursor:"pointer",textAlign:"left",color:"#ef4444",transition:"background .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(239,68,68,.08)"} onMouseLeave={e=>e.currentTarget.style.background="none"}>
+            <span style={{fontSize:22,width:30,textAlign:"center"}}>🚪</span>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700}}>Sign Out</div>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
