@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+
+    <!-- Background -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e1e2e"/>
+      <stop offset="100%" stop-color="#0f0f14"/>
+    </linearGradient>
+
+    <!-- Book spines -->
+    <linearGradient id="b1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </linearGradient>
+    <linearGradient id="b2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#7e22ce"/>
+    </linearGradient>
+    <linearGradient id="b3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#065f46"/>
+    </linearGradient>
+
+    <!-- Shelf gradient (wood-like) -->
+    <linearGradient id="shelf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2e2b4a"/>
+      <stop offset="100%" stop-color="#1a1828"/>
+    </linearGradient>
+
+    <!-- Glow under books -->
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Drop shadow for books -->
+    <filter id="shadow" x="-10%" y="-5%" width="130%" height="120%">
+      <feDropShadow dx="4" dy="8" stdDeviation="8" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+
+  </defs>
+
+  <!-- ── Background ── -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- ── Ambient glow pool beneath books ── -->
+  <ellipse cx="256" cy="388" rx="190" ry="28" fill="#6366f1" opacity="0.18" filter="url(#glow)"/>
+
+  <!-- ══════════════════════════════════════
+       BOOK 1  —  Indigo  (left, tallest)
+       Body: x=82, w=88, top=118, h=264
+       Pages edge on right, spine highlight on left
+  ════════════════════════════════════════ -->
+  <g filter="url(#shadow)">
+    <!-- Main body -->
+    <rect x="82" y="118" width="88" height="264" rx="7" fill="url(#b1)"/>
+    <!-- Spine highlight strip -->
+    <rect x="82" y="118" width="15" height="264" rx="7" fill="rgba(255,255,255,0.20)"/>
+    <!-- Pages block (right edge, cream) -->
+    <rect x="158" y="126" width="12" height="248" rx="4" fill="#f0ecff" opacity="0.92"/>
+    <!-- Pages micro-lines -->
+    <line x1="158" y1="132" x2="170" y2="132" stroke="#ccc8e8" stroke-width="1" opacity="0.5"/>
+    <line x1="158" y1="140" x2="170" y2="140" stroke="#ccc8e8" stroke-width="1" opacity="0.4"/>
+    <line x1="158" y1="148" x2="170" y2="148" stroke="#ccc8e8" stroke-width="1" opacity="0.3"/>
+    <!-- Title lines on spine -->
+    <rect x="96"  y="160" width="52" height="7"  rx="3.5" fill="rgba(255,255,255,0.45)"/>
+    <rect x="96"  y="174" width="38" height="5"  rx="2.5" fill="rgba(255,255,255,0.25)"/>
+    <rect x="96"  y="185" width="44" height="5"  rx="2.5" fill="rgba(255,255,255,0.20)"/>
+    <!-- Author band near bottom -->
+    <rect x="96"  y="340" width="36" height="4"  rx="2"   fill="rgba(255,255,255,0.18)"/>
+  </g>
+
+  <!-- ══════════════════════════════════════
+       BOOK 2  —  Purple  (center, mid-height)
+       Body: x=186, w=100, top=140, h=242
+  ════════════════════════════════════════ -->
+  <g filter="url(#shadow)">
+    <rect x="186" y="140" width="100" height="242" rx="7" fill="url(#b2)"/>
+    <rect x="186" y="140" width="16"  height="242" rx="7" fill="rgba(255,255,255,0.20)"/>
+    <!-- Pages block -->
+    <rect x="273" y="148" width="13"  height="226" rx="4" fill="#f5f0ff" opacity="0.92"/>
+    <line x1="273" y1="155" x2="286" y2="155" stroke="#d5ccf0" stroke-width="1" opacity="0.5"/>
+    <line x1="273" y1="163" x2="286" y2="163" stroke="#d5ccf0" stroke-width="1" opacity="0.4"/>
+    <line x1="273" y1="171" x2="286" y2="171" stroke="#d5ccf0" stroke-width="1" opacity="0.3"/>
+    <!-- Title lines -->
+    <rect x="202" y="182" width="64" height="7"  rx="3.5" fill="rgba(255,255,255,0.45)"/>
+    <rect x="202" y="196" width="46" height="5"  rx="2.5" fill="rgba(255,255,255,0.25)"/>
+    <rect x="202" y="207" width="54" height="5"  rx="2.5" fill="rgba(255,255,255,0.20)"/>
+    <rect x="202" y="350" width="42" height="4"  rx="2"   fill="rgba(255,255,255,0.18)"/>
+  </g>
+
+  <!-- ══════════════════════════════════════
+       BOOK 3  —  Teal  (right, shortest)
+       Body: x=302, w=82, top=162, h=220
+  ════════════════════════════════════════ -->
+  <g filter="url(#shadow)">
+    <rect x="302" y="162" width="82"  height="220" rx="7" fill="url(#b3)"/>
+    <rect x="302" y="162" width="14"  height="220" rx="7" fill="rgba(255,255,255,0.22)"/>
+    <!-- Pages block -->
+    <rect x="372" y="170" width="12"  height="204" rx="4" fill="#edfdf8" opacity="0.92"/>
+    <line x1="372" y1="177" x2="384" y2="177" stroke="#b8ede0" stroke-width="1" opacity="0.5"/>
+    <line x1="372" y1="185" x2="384" y2="185" stroke="#b8ede0" stroke-width="1" opacity="0.4"/>
+    <line x1="372" y1="193" x2="384" y2="193" stroke="#b8ede0" stroke-width="1" opacity="0.3"/>
+    <!-- Title lines -->
+    <rect x="316" y="200" width="48" height="7"  rx="3.5" fill="rgba(255,255,255,0.45)"/>
+    <rect x="316" y="214" width="34" height="5"  rx="2.5" fill="rgba(255,255,255,0.25)"/>
+    <rect x="316" y="225" width="42" height="5"  rx="2.5" fill="rgba(255,255,255,0.20)"/>
+    <rect x="316" y="336" width="32" height="4"  rx="2"   fill="rgba(255,255,255,0.18)"/>
+  </g>
+
+  <!-- ── Shelf surface ── -->
+  <rect x="66" y="382" width="356" height="14" rx="7" fill="url(#shelf)"/>
+  <!-- Shelf top-edge highlight -->
+  <rect x="66" y="382" width="356" height="3"  rx="2" fill="rgba(99,102,241,0.35)"/>
+  <!-- Shelf underside shadow -->
+  <rect x="72" y="396" width="344" height="10" rx="5" fill="rgba(0,0,0,0.45)"/>
+
+  <!-- ── Sparkle dots (AI nod, top-right) ── -->
+  <circle cx="432" cy="108" r="5"   fill="#818cf8" opacity="0.90"/>
+  <circle cx="452" cy="86"  r="3"   fill="#c084fc" opacity="0.70"/>
+  <circle cx="413" cy="82"  r="2.5" fill="#34d399" opacity="0.65"/>
+  <circle cx="460" cy="118" r="2"   fill="#818cf8" opacity="0.50"/>
+
+</svg>
