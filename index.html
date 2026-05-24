@@ -88,7 +88,7 @@ self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promis
 self.addEventListener('fetch',e=>{
   const url=new URL(e.request.url);
   const noCache=url.pathname.endsWith('manifest.json');
-  const skip=['openlibrary.org','fonts.gstatic.com','amazon.com','barnesandnoble.com','halfpricebooks.com','workers.dev'].some(h=>url.hostname.includes(h));
+  const skip=['openlibrary.org','googleapis.com','fonts.gstatic.com','amazon.com','barnesandnoble.com','halfpricebooks.com','workers.dev'].some(h=>url.hostname.includes(h));
   if(skip||noCache||e.request.method!=='GET')return;
   e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{if(e.request.mode==='navigate')return caches.match('/bookshelf-app/');});}));
 });`;
@@ -450,26 +450,29 @@ function parseDoc(doc) {
 }
 // lang = ISO code e.g. "en", "de". If provided, restrict results to that language.
 async function olSearch(q, lim=12, lang=null) {
-  const olCode = lang ? (OL_LANG[lang]||"eng") : "eng";
-  const url = `${OL_SEARCH}?q=${encodeURIComponent(q)}&limit=${lim}&fields=${OL_FIELDS}&language=${olCode}`;
-  const r = await fetch(url);
-  if(!r.ok) throw new Error("Search failed");
-  const docs = (await r.json())?.docs||[];
-  const results = docs.map(parseDoc).filter(Boolean);
-  // Secondary language filter: OL sometimes returns results ignoring the lang param
-  if(lang) {
-    const olCode2 = OL_LANG[lang]||lang;
-    return results.filter(b => {
-      const bl = OL_LANG[b.language] || b.language;
-      return bl === olCode2 || b.language === lang;
-    });
+  async function _fetch(withLang) {
+    const params=new URLSearchParams({q,limit:String(lim),fields:OL_FIELDS});
+    if(withLang&&lang) params.set('language',OL_LANG[lang]||'eng');
+    const r=await fetch(`${OL_SEARCH}?${params}`);
+    if(!r.ok) throw new Error("Search failed");
+    return ((await r.json())?.docs||[]).map(parseDoc).filter(Boolean);
+  }
+  let results=await _fetch(true);
+  // If language filter yielded nothing, retry without it
+  if(results.length===0) results=await _fetch(false);
+  // Secondary language filter — but only if it doesn't wipe all results
+  if(lang&&results.length>0){
+    const c=OL_LANG[lang]||lang;
+    const filtered=results.filter(b=>{const bl=OL_LANG[b.language]||b.language;return bl===c||b.language===lang;});
+    if(filtered.length>0) return filtered;
   }
   return results;
 }
-async function fetchByISBN(isbn) {
+// Internal OL ISBN fetch — returns null instead of throwing
+async function _olByISBN(isbn) {
   try {
     const r=await fetch(`https://openlibrary.org/isbn/${isbn}.json`);
-    if(!r.ok) throw new Error();
+    if(!r.ok) return null;
     const ed=await r.json();
     const wk=ed.works?.[0]?.key; let work={}, authorName="Unknown Author";
     if(wk){const wr=await fetch(`https://openlibrary.org${wk}.json`);if(wr.ok)work=await wr.json();}
@@ -477,31 +480,115 @@ async function fetchByISBN(isbn) {
     if(ak){const ar=await fetch(`https://openlibrary.org${ak}.json`);if(ar.ok){const a=await ar.json();authorName=a.name||authorName;}}
     const i13=isbn.length===13?isbn:ed.isbn_13?.[0]||"", i10=isbn.length===10?isbn:ed.isbn_10?.[0]||"";
     const desc=work.description;
-    const olLang = ed.languages?.[0]?.key?.replace("/languages/","")||"eng";
-    const isoLang = Object.entries(OL_LANG).find(([,v])=>v===olLang)?.[0] || olLang.slice(0,2);
-    const bookBinding = detectBinding(ed.physical_format||"");
-    // Build cover candidates: try all edition covers + work covers
-    const candidates = [];
+    const olLang=ed.languages?.[0]?.key?.replace("/languages/","")||"eng";
+    const isoLang=Object.entries(OL_LANG).find(([,v])=>v===olLang)?.[0]||olLang.slice(0,2);
+    const bookBinding=detectBinding(ed.physical_format||"");
+    const candidates=[];
     if(i13) candidates.push(`https://covers.openlibrary.org/b/isbn/${i13}-L.jpg`);
     if(i10) candidates.push(`https://covers.openlibrary.org/b/isbn/${i10}-L.jpg`);
     (ed.covers||[]).forEach(id=>candidates.push(`https://covers.openlibrary.org/b/id/${id}-L.jpg`));
     (work.covers||[]).forEach(id=>candidates.push(`https://covers.openlibrary.org/b/id/${id}-L.jpg`));
     return {
-      id:wk?.replace("/works/","")||isbn, title:ed.title||work.title||"Unknown Title",
-      subtitle:ed.subtitle||work.subtitle||"", authors:[authorName],
-      cover:candidates[0]||null, coverCandidates:[...new Set(candidates)],
-      genre:work.subjects?.[0]||"",
-      categories:work.subjects?.slice(0,4)||[], year:ed.publish_date||"",
-      publishedDate:ed.publish_date||"", publisher:ed.publishers?.[0]||"",
-      pages:ed.number_of_pages?.toString()||"",
-      description:typeof desc==="string"?desc:desc?.value||"",
-      language:isoLang,
-      isbn13:i13, isbn10:i10, averageRating:0, ratingsCount:0, previewLink:"",
-      status:"owned", rating:0, notes:"", addedAt:Date.now(),
-      bookFormat:"physical", bookBinding,
-      customShelves:[], readDates:[], highlights:[],
+      id:wk?.replace("/works/","")||isbn,title:ed.title||work.title||"Unknown Title",
+      subtitle:ed.subtitle||work.subtitle||"",authors:[authorName],
+      cover:candidates[0]||null,coverCandidates:[...new Set(candidates)],
+      genre:work.subjects?.[0]||"",categories:work.subjects?.slice(0,4)||[],
+      year:ed.publish_date||"",publishedDate:ed.publish_date||"",
+      publisher:ed.publishers?.[0]||"",pages:ed.number_of_pages?.toString()||"",
+      description:typeof desc==="string"?desc:desc?.value||"",language:isoLang,
+      isbn13:i13,isbn10:i10,averageRating:0,ratingsCount:0,previewLink:"",
+      status:"owned",rating:0,notes:"",addedAt:Date.now(),
+      bookFormat:"physical",bookBinding,customShelves:[],readDates:[],highlights:[],
     };
-  } catch { const res=await olSearch(isbn,1); return res[0]||null; }
+  } catch { return null; }
+}
+
+// ─── ISBN-10 ↔ ISBN-13 conversion ────────────────────────────────────────────
+function isbn10to13(i10){
+  if(!i10)return null;
+  const d=i10.replace(/[^0-9X]/gi,"");
+  if(d.length<9)return null;
+  const base="978"+d.slice(0,9);
+  let s=0;for(let i=0;i<12;i++)s+=parseInt(base[i])*(i%2?3:1);
+  return base+((10-(s%10))%10);
+}
+function isbn13to10(i13){
+  if(!i13||i13.length!==13||!i13.startsWith("978"))return null;
+  const base=i13.slice(3,12);
+  let s=0;for(let i=0;i<9;i++)s+=parseInt(base[i])*(10-i);
+  const c=(11-(s%11))%11;return base+(c===10?"X":c.toString());
+}
+
+// ─── Google Books API (no key required) ──────────────────────────────────────
+function parseGoogleVolume(vol){
+  if(!vol)return null;
+  const vi=vol.volumeInfo||{};
+  const ids=vi.industryIdentifiers||[];
+  const i13=ids.find(x=>x.type==="ISBN_13")?.identifier||"";
+  const i10=ids.find(x=>x.type==="ISBN_10")?.identifier||"";
+  const raw=vi.imageLinks?.thumbnail||vi.imageLinks?.smallThumbnail||"";
+  const cover=raw?raw.replace("http:","https:").replace(/zoom=\d/,"zoom=2"):null;
+  return {
+    id:i13||i10||vol.id||crypto.randomUUID(),
+    title:vi.title||"Unknown Title",subtitle:vi.subtitle||"",
+    authors:vi.authors||["Unknown Author"],
+    cover,coverCandidates:cover?[cover]:[],
+    genre:vi.categories?.[0]||"",categories:vi.categories?.slice(0,4)||[],
+    year:vi.publishedDate?.slice(0,4)||"",publishedDate:vi.publishedDate||"",
+    publisher:vi.publisher||"",pages:vi.pageCount?.toString()||"",
+    description:vi.description||"",language:vi.language||"en",
+    isbn13:i13,isbn10:i10,averageRating:vi.averageRating||0,
+    ratingsCount:vi.ratingsCount||0,previewLink:vi.previewLink||"",
+    status:"owned",rating:0,notes:"",addedAt:Date.now(),
+    bookFormat:"physical",bookBinding:"unknown",
+    customShelves:[],readDates:[],highlights:[],
+  };
+}
+async function fetchByISBNGoogle(isbn){
+  try{
+    const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&maxResults=1`);
+    if(!r.ok)return null;
+    const d=await r.json();
+    return d.items?.[0]?parseGoogleVolume(d.items[0]):null;
+  }catch{return null;}
+}
+
+// Enrich an AI-generated suggestion with real cover art + ISBNs
+async function enrichSuggestion(sug){
+  try{
+    const title=sug.title, author=sug.authors?.[0]||"";
+    // 1. Google Books by AI-provided ISBN
+    if(sug.isbn13){const gb=await fetchByISBNGoogle(sug.isbn13);if(gb?.cover)return _mergeSug(sug,gb);}
+    // 2. Google Books by title+author (most reliable for cover art)
+    const q=`intitle:${encodeURIComponent(title)}${author?`+inauthor:${encodeURIComponent(author)}`:""}`;
+    const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=1`);
+    if(r.ok){const d=await r.json();const p=d.items?.[0]?parseGoogleVolume(d.items[0]):null;if(p?.cover)return _mergeSug(sug,p);}
+    // 3. Open Library title search
+    const ol=await olSearch(`${title} ${author}`,1,null);
+    if(ol?.[0]?.cover)return _mergeSug(sug,ol[0]);
+  }catch{}
+  return {...sug,cover:sug.isbn13?`https://covers.openlibrary.org/b/isbn/${sug.isbn13}-L.jpg`:null};
+}
+function _mergeSug(sug,real){
+  return {...sug,cover:real.cover,coverCandidates:real.coverCandidates||[],
+    isbn13:real.isbn13||sug.isbn13||"",isbn10:real.isbn10||sug.isbn10||"",
+    pages:real.pages||sug.pages||"",publisher:real.publisher||sug.publisher||""};
+}
+
+// Multi-source ISBN lookup: OL → OL(alt format) → Google Books → text search
+async function fetchByISBN(isbn) {
+  isbn=isbn.replace(/[^0-9X]/gi,"").trim();
+  if(!isbn)return null;
+  const alt=isbn.length===13?isbn13to10(isbn):isbn10to13(isbn);
+  // Open Library (most metadata-rich for edition details)
+  const ol1=await _olByISBN(isbn); if(ol1)return ol1;
+  if(alt){const ol2=await _olByISBN(alt);if(ol2)return ol2;}
+  // Google Books (better coverage, especially newer/self-published)
+  const gb1=await fetchByISBNGoogle(isbn); if(gb1)return gb1;
+  if(alt){const gb2=await fetchByISBNGoogle(alt);if(gb2)return gb2;}
+  // Last resort: text search by ISBN string
+  const res=await olSearch(isbn,1,null).catch(()=>null);
+  return res?.[0]||null;
 }
 function pLinks(book) {
   const q=encodeURIComponent(`${book.title} ${book.authors?.[0]||""}`);
@@ -567,7 +654,9 @@ Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
   const text=(await aiText(prompt,5000)).replace(/```json|```/g,"").trim();
   const wlSet=new Set(books.map(b=>b.title.toLowerCase()));
-  return JSON.parse(text).filter(s=>s.title&&!wlSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  const base=JSON.parse(text).filter(s=>s.title&&!wlSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
+  return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
 }
 async function aiMoodSuggest(mood,books) {
   const ro=books.filter(b=>["read","owned"].includes(b.status)).map(b=>b.title).slice(0,20);
@@ -575,7 +664,9 @@ async function aiMoodSuggest(mood,books) {
 Suggest 8 books matching this mood. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
   const text=(await aiText(prompt,2000)).replace(/```json|```/g,"").trim();
-  return JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  const base=JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
+  return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
 }
 
 // ─── Native Share API ────────────────────────────────────────────────────────
@@ -920,7 +1011,35 @@ function SearchPanel({onAdd}) {
   const [q,setQ]=useState("");const [res,setRes]=useState([]);const [busy,setBusy]=useState(false);const [err,setErr]=useState("");
   const [coverPickFor,setCoverPickFor]=useState(null);
   const [pendingBook,setPendingBook]=useState(null);
-  async function go(){const query=q.trim();if(!query)return;setBusy(true);setErr("");setRes([]);try{const books=/^\d{10,13}$/.test(query.replace(/-/g,""))?[await fetchByISBN(query.replace(/-/g,""))].filter(Boolean):await olSearch(query,12,null);setRes(books);if(!books.length)setErr("No books found — try a different title, author, or ISBN.");}catch{setErr("Search failed. Check your connection and try again.");}finally{setBusy(false);}}
+  async function go(){
+    const query=q.trim();if(!query)return;
+    setBusy(true);setErr("");setRes([]);
+    try{
+      const clean=query.replace(/[^0-9X]/gi,"");
+      const isISBN=/^\d{10,13}$/.test(clean)||/^\d{9}X$/i.test(clean);
+      let books=[];
+      if(isISBN){
+        const b=await fetchByISBN(clean);
+        books=b?[b]:[];
+      } else {
+        // Try OL first, fall back to Google Books if sparse results
+        books=await olSearch(query,12,null);
+        if(books.length<3){
+          const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12`).catch(()=>null);
+          if(gbR?.ok){
+            const gbD=await gbR.json();
+            const gbBooks=(gbD.items||[]).map(parseGoogleVolume).filter(Boolean);
+            // Merge: add GB results not already in OL results
+            const seen=new Set(books.map(b=>b.title.toLowerCase()));
+            books=[...books,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
+          }
+        }
+      }
+      setRes(books);
+      if(!books.length)setErr("No books found — try a different title, author, or ISBN.");
+    }catch{setErr("Search failed. Check your connection and try again.");}
+    finally{setBusy(false);}
+  }
   if(coverPickFor) return <CoverPickerModal book={coverPickFor} onSelect={url=>{const updated={...coverPickFor,cover:url};if(pendingBook){onAdd(updated);}else{setRes(r=>r.map(b=>b.id===coverPickFor.id?{...b,cover:url}:b));} setCoverPickFor(null);setPendingBook(null);}} onClose={()=>{setCoverPickFor(null);setPendingBook(null);}}/>;
   return <div>
     <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" autoFocus style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
