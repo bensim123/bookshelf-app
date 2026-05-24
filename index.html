@@ -2120,7 +2120,8 @@ function App({ user }) {
     <div className="app-inner" style={{zIndex:1}}>
 
       {/* ── Library ── */}
-      {activeTab==="library"&&<div style={{paddingBottom:84}}>
+      {activeTab==="library"&&<div style={{paddingBottom:"calc(80px + env(safe-area-inset-bottom))"}}>
+
                <div style={{padding:"48px 20px 12px"}}>
           {/* Title row */}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
@@ -2252,23 +2253,51 @@ function App({ user }) {
     {achToast&&<AchievementToast achievement={achToast} onDismiss={()=>setAchToast(null)}/>}
 
     {/* Regular toast (bottom) */}
-    {toast&&<div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",zIndex:300,background:P.bgCard,color:P.text,borderRadius:14,padding:"13px 20px",maxWidth:340,width:"calc(100% - 40px)",boxShadow:`0 8px 32px rgba(0,0,0,.6), 0 0 0 1px ${P.border}`,display:"flex",gap:12,alignItems:"center",fontFamily:"'Nunito',sans-serif",fontSize:14,fontWeight:700}}><span style={{flex:1}}>{toast}</span><button onClick={()=>setToast(null)} style={{background:"none",border:"none",color:P.muted,cursor:"pointer",fontSize:18,padding:0,lineHeight:1}}>×</button></div>}
+    {toast&&<div style={{position:"fixed",bottom:"calc(76px + env(safe-area-inset-bottom))",left:"50%",transform:"translateX(-50%)",zIndex:300,background:P.bgCard,color:P.text,borderRadius:14,padding:"13px 20px",maxWidth:340,width:"calc(100% - 40px)",boxShadow:`0 8px 32px rgba(0,0,0,.6), 0 0 0 1px ${P.border}`,display:"flex",gap:12,alignItems:"center",fontFamily:"'Nunito',sans-serif",fontSize:14,fontWeight:700}}><span style={{flex:1}}>{toast}</span><button onClick={()=>setToast(null)} style={{background:"none",border:"none",color:P.muted,cursor:"pointer",fontSize:18,padding:0,lineHeight:1}}>×</button></div>}
 
     {/* Keyframe animation injected once */}
     <style>{`@keyframes slideDown{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
 
-    {/* Bottom nav */}
-    <nav style={{position:"fixed",bottom:0,left:0,right:0,height:70,background:P.navBg,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderTop:`1px solid ${P.border}`,zIndex:200,boxShadow:"0 -1px 0 rgba(99,102,241,.2),0 -20px 40px rgba(0,0,0,.4)"}}>
-      <div className="app-inner" style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"space-around",position:"relative"}}>
-        {[["library","📚","🗂","Library"],["stats","📊","📊","Stats"],["achievements","🏆","🏅","Awards"],["suggestions","✨","💡","Suggest"]].map(([tab,activeIcon,inactiveIcon,label])=>(
-          <button key={tab} onClick={()=>setActiveTab(tab)}
-            style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 0",color:activeTab===tab?P.accent:P.muted,flex:1,position:"relative"}}>
-            <span style={{fontSize:20}}>{activeTab===tab?activeIcon:inactiveIcon}</span>
-            <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>{label}</span>
-            {tab==="achievements"&&earnedAchs.length>0&&<span style={{position:"absolute",top:4,right:"18%",background:P.gold,borderRadius:8,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,color:"#000",padding:"0 4px"}}>{earnedAchs.length}</span>}
-          </button>
-        ))}
-        {activeTab==="library"&&<div style={{position:"absolute",bottom:14,right:16}}><button onClick={()=>setShowAdd(true)} style={{width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${P.accentLt},${P.accent})`,color:"#fff",border:"none",fontSize:24,cursor:"pointer",boxShadow:`0 0 0 1px ${P.accent}, 0 8px 32px ${P.accentGlow}, 0 4px 12px rgba(0,0,0,.5)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300}}>＋</button></div>}
+    {/* Bottom nav — 5-slot flex layout: Library | Stats | [+FAB] | Awards | Suggest
+        The FAB lives in slot 3 permanently. No absolute positioning = no overlap ever. */}
+    <nav style={{position:"fixed",bottom:0,left:0,right:0,background:P.navBg,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderTop:`1px solid ${P.border}`,zIndex:200,boxShadow:"0 -1px 0 rgba(99,102,241,.2),0 -20px 40px rgba(0,0,0,.4)",paddingBottom:"env(safe-area-inset-bottom)"}}>
+      <div className="app-inner" style={{height:60,display:"flex",alignItems:"center"}}>
+
+        {/* Slot 1 — Library */}
+        <button onClick={()=>setActiveTab("library")}
+          style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"6px 0",color:activeTab==="library"?P.accent:P.muted,minWidth:0}}>
+          <span style={{fontSize:20,lineHeight:1}}>{activeTab==="library"?"📚":"🗂"}</span>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>Library</span>
+        </button>
+
+        {/* Slot 2 — Stats */}
+        <button onClick={()=>setActiveTab("stats")}
+          style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"6px 0",color:activeTab==="stats"?P.accent:P.muted,minWidth:0}}>
+          <span style={{fontSize:20,lineHeight:1}}>📊</span>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>Stats</span>
+        </button>
+
+        {/* Slot 3 — FAB (center, always present, lifts above nav) */}
+        <div style={{flex:1,display:"flex",justifyContent:"center",alignItems:"center",minWidth:0}}>
+          <button onClick={()=>setShowAdd(true)}
+            style={{width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${P.accentLt},${P.accent})`,color:"#fff",border:"none",fontSize:24,cursor:"pointer",boxShadow:`0 0 0 1px ${P.accent}, 0 8px 32px ${P.accentGlow}, 0 4px 12px rgba(0,0,0,.5)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:300,flexShrink:0,transform:"translateY(-8px)"}}>＋</button>
+        </div>
+
+        {/* Slot 4 — Awards */}
+        <button onClick={()=>setActiveTab("achievements")}
+          style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"6px 0",color:activeTab==="achievements"?P.accent:P.muted,minWidth:0,position:"relative"}}>
+          <span style={{fontSize:20,lineHeight:1}}>{activeTab==="achievements"?"🏆":"🏅"}</span>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>Awards</span>
+          {earnedAchs.length>0&&<span style={{position:"absolute",top:2,right:"18%",background:P.gold,borderRadius:8,minWidth:16,height:16,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,color:"#000",padding:"0 4px"}}>{earnedAchs.length}</span>}
+        </button>
+
+        {/* Slot 5 — Suggest */}
+        <button onClick={()=>setActiveTab("suggestions")}
+          style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"6px 0",color:activeTab==="suggestions"?P.accent:P.muted,minWidth:0}}>
+          <span style={{fontSize:20,lineHeight:1}}>{activeTab==="suggestions"?"✨":"💡"}</span>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:9,fontWeight:800,letterSpacing:.4,textTransform:"uppercase"}}>Suggest</span>
+        </button>
+
       </div>
     </nav>
 
