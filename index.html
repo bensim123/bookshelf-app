@@ -202,14 +202,25 @@ const save = (k, v) => {
   }, k === 'books' ? 600 : 0);
 };
 
-// ─── Anthropic API helpers ───────────────────────────────────────────────────
-const getClaudeHeaders = () => ({
-  "Content-Type": "application/json",
-  "x-api-key": localStorage.getItem('bs_apiKey') || '',
-  "anthropic-version": "2023-06-01",
-  "anthropic-dangerous-direct-browser-calls": "true"
-});
+// ─── Gemini API helpers ───────────────────────────────────────────────────────
+const GEMINI_MODEL = "gemini-2.0-flash";
+const geminiUrl = () => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${localStorage.getItem('bs_apiKey')||''}`;
 const hasApiKey = () => Boolean(localStorage.getItem('bs_apiKey'));
+
+async function geminiText(prompt, maxTokens=5000) {
+  const r = await fetch(geminiUrl(), {method:"POST",headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})});
+  const d = await r.json();
+  if(d.error) throw new Error(d.error.message);
+  return d?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+async function geminiVision(b64, mimeType, prompt, maxTokens=400) {
+  const r = await fetch(geminiUrl(), {method:"POST",headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({contents:[{parts:[{inlineData:{mimeType,data:b64}},{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})});
+  const d = await r.json();
+  if(d.error) throw new Error(d.error.message);
+  return d?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
 
 // Best-effort flush on page unload
 window.addEventListener('beforeunload', () => {
@@ -535,9 +546,7 @@ Authors: ${[...new Set(ro.map(b=>b.authors?.[0]).filter(Boolean))].slice(0,12).j
 Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price.
 Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:getClaudeHeaders(),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:5000,messages:[{role:"user",content:prompt}]})});
-  const d=await r.json();
-  const text=(d?.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim();
+  const text=(await geminiText(prompt,5000)).replace(/```json|```/g,"").trim();
   const wlSet=new Set(books.map(b=>b.title.toLowerCase()));
   return JSON.parse(text).filter(s=>s.title&&!wlSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
 }
@@ -546,9 +555,7 @@ async function aiMoodSuggest(mood,books) {
   const prompt=`Reader wants: "${mood}". They've enjoyed: ${ro.join(", ")||"various"}.
 Suggest 8 books matching this mood. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:getClaudeHeaders(),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
-  const d=await r.json();
-  const text=(d?.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim();
+  const text=(await geminiText(prompt,2000)).replace(/```json|```/g,"").trim();
   return JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
 }
 
@@ -805,10 +812,8 @@ function CoverScanner({onDetected,onClose}) {
     if(!file)return;setBusy(true);setMsg("Identifying cover with AI…");
     try{
       const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(file);});
-      if(!hasApiKey()){setMsg("API key not set — tap ⚙️ in the header to add your Anthropic API key.");setBusy(false);return;}
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:getClaudeHeaders(),body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data:b64}},{type:"text",text:'Identify this book cover. Respond ONLY with JSON (no markdown): {"title":"","author":"","isbn":"","language":"en"}. Language should be the 2-letter ISO code of the book\'s text. If unidentifiable: {"error":"..."}'}]}]})});
-      const rd=await resp.json();
-      const txt=rd?.content?.[0]?.text||"{}";
+      if(!hasApiKey()){setMsg("API key not set — tap ⚙️ in the header to add your Gemini API key.");setBusy(false);return;}
+      const txt=await geminiVision(b64,"image/jpeg",'Identify this book cover. Respond ONLY with JSON (no markdown): {"title":"","author":"","isbn":"","language":"en"}. Language should be the 2-letter ISO code of the book\'s text. If unidentifiable: {"error":"..."}',400);
       const result=JSON.parse(txt.replace(/```json|```/g,"").trim());
       if(result.error){setMsg("Couldn't identify — try a clearer photo.");setBusy(false);return;}
       const lang=result.language||"en";
@@ -1253,8 +1258,8 @@ function SuggestScreen({books,onAddWishlist}) {
   const [sel,setSel]=useState(null),[shareOpen,setShareOpen]=useState(false),[gen,setGen]=useState(false);
   const [moodMode,setMoodMode]=useState(false),[mood,setMood]=useState("");
   const owned=books.filter(b=>["read","owned","reading"].includes(b.status));
-  async function generate(){if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your Anthropic API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
-  async function generateMood(){if(!mood.trim())return;if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your Anthropic API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
+  async function generate(){if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your free Gemini API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
+  async function generateMood(){if(!mood.trim())return;if(!hasApiKey()){setErr("API key not set — tap ⚙️ in the header to add your free Gemini API key.");return;}setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   function shareText(){
     const body=sugs.slice(0,5).map((b,i)=>`${i+1}. ${b.title} by ${b.authors?.[0]} ${pLinks(b).amazon}`).join("\n")+"\n(more in Bookshelf)";
     nativeShare("My Book Suggestions",body,()=>window.open(`sms:?&body=${encodeURIComponent(body)}`));
@@ -2273,8 +2278,8 @@ function SettingsModal({onClose}) {
     <div style={{padding:"4px 0"}}>
       <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,margin:"0 0 16px"}}>⚙️ Settings</h3>
       <div style={{background:P.bgSurface,borderRadius:14,padding:"16px",border:`1px solid ${P.border}`,marginBottom:16}}>
-        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,margin:"0 0 4px"}}>Anthropic API Key</p>
-        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,lineHeight:1.5,margin:"0 0 12px"}}>Required for Cover Photo scan and AI Suggestions. Get a free key at <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" style={{color:P.accent}}>console.anthropic.com</a>.</p>
+        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,margin:"0 0 4px"}}>Google Gemini API Key</p>
+        <p style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,lineHeight:1.5,margin:"0 0 12px"}}>Required for Cover Photo scan and AI Suggestions. Free — no credit card needed. Get a key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style={{color:P.accent}}>aistudio.google.com</a>.</p>
         <input
           type="password"
           value={key}
