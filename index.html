@@ -197,6 +197,7 @@ const save = (k, v) => {
   if (!_userDocRef) return;
   clearTimeout(_saveTimers[k]);
   _saveTimers[k] = setTimeout(() => {
+    if (!_userDocRef) return;
     _userDocRef.set({ [k]: v }, { merge: true }).catch(e => console.error('Firestore save failed:', e));
   }, k === 'books' ? 600 : 0);
 };
@@ -1936,7 +1937,11 @@ function App({ user }) {
   const [earnedAchs,setEarnedAchs] = useState(()=>load("achievements",[]));
   const [achToast,setAchToast]     = useState(null); // achievement being shown
 
-  useEffect(()=>{ if(books.length>0) save("books",books); },[books]);
+  const booksMounted = useRef(false);
+  useEffect(()=>{
+    if(!booksMounted.current){booksMounted.current=true;return;}
+    save("books",books);
+  },[books]);
   useEffect(()=>{ save("goal",readingGoal); },[readingGoal]);
   useEffect(()=>{ save("shelves",customShelves); },[customShelves]);
   useEffect(()=>{
