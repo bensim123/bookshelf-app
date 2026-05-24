@@ -1016,24 +1016,21 @@ function SearchPanel({onAdd}) {
     setBusy(true);setErr("");setRes([]);
     try{
       const clean=query.replace(/[^0-9X]/gi,"");
-      const isISBN=/^\d{10,13}$/.test(clean)||/^\d{9}X$/i.test(clean);
+      const isISBN=/^\d{13}$/.test(clean)||/^\d{10}$/.test(clean)||/^\d{9}X$/i.test(clean);
       let books=[];
       if(isISBN){
         const b=await fetchByISBN(clean);
-        books=b?[b]:[];
-      } else {
-        // Try OL first, fall back to Google Books if sparse results
-        books=await olSearch(query,12,null);
-        if(books.length<3){
-          const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=12`).catch(()=>null);
-          if(gbR?.ok){
-            const gbD=await gbR.json();
-            const gbBooks=(gbD.items||[]).map(parseGoogleVolume).filter(Boolean);
-            // Merge: add GB results not already in OL results
-            const seen=new Set(books.map(b=>b.title.toLowerCase()));
-            books=[...books,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
-          }
-        }
+        if(b) books=[b];
+      }
+      // If ISBN lookup found nothing (or query wasn't an ISBN), run text search too
+      if(books.length===0){
+        const textQ=isISBN?clean:query;
+        const olBooks=await olSearch(textQ,12,null);
+        // Google Books parallel fetch
+        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${isISBN?`isbn:${clean}`:encodeURIComponent(query)}&maxResults=12`).catch(()=>null);
+        const gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
+        const seen=new Set(olBooks.map(b=>b.title.toLowerCase()));
+        books=[...olBooks,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
       }
       setRes(books);
       if(!books.length)setErr("No books found — try a different title, author, or ISBN.");
