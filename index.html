@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v25';
+const CACHE='bookshelf-v26';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v25 ok');
+        console.log('SW v26 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1285,7 +1285,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="25";
+const APP_VERSION="26";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -1659,9 +1659,9 @@ function StatsScreen({books,goal}) {
 // ─── Wishlist Export ──────────────────────────────────────────────────────────
 function WishlistExport({books,onClose}) {
   const wl=books.filter(b=>b.status==="wishlist");
-  function email(){const lines=["📚 My Wishlist\n",...wl.map((b,i)=>{const l=pLinks(b);return[`${i+1}. ${b.title} by ${b.authors?.[0]} (${b.year||"?"})`,b.price?`   Price: ${b.price}`:"",`   Amazon: ${l.amazon}`,`   B&N: ${l.bn}`,`   Half Price Books: ${l.hpb}`,""].filter(Boolean).join("\n");})];window.open(`mailto:?subject=${encodeURIComponent("My Book Wishlist")}&body=${encodeURIComponent(lines.join("\n"))}`);onClose();}
+  function email(){const w=window.open("","_blank");const tip='<div style="background:#f5f0e8;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:13px;color:#5a3e28;font-family:Arial,sans-serif">📋 <strong>To email this list:</strong> Select all (Ctrl+A / ⌘+A), copy (Ctrl+C / ⌘+C), then paste into Gmail, Outlook, or Apple Mail.</div>';w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>My Wishlist</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #e0d0b8}.title{font-size:16px;font-weight:bold;margin:0 0 2px}.auth{color:#7a5c3a;font-size:13px}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:6px}.links{display:flex;gap:14px;margin-top:6px}.links a{font-size:12px;color:#1a3c5e;text-decoration:none}</style></head><body>${tip}<h1>📚 My Book Wishlist</h1><p class="sub">${new Date().toLocaleDateString()} · ${wl.length} books</p>${wl.map((b,i)=>{const l=pLinks(b);return\`<div class="book"><div class="title">${i+1}. ${b.title}${b.price?\`<span class="price">${b.price}</span>\`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"} ${b.year?\`(${b.year})\`:""}</div><div class="links"><a href="${l.amazon}">🛒 Amazon</a> · <a href="${l.bn}">📗 Barnes &amp; Noble</a> · <a href="${l.hpb}">🏷 Half Price Books</a></div></div>\`;}).join("")}</body></html>`);w.document.close();onClose();}
   function text(){
-    const body=wl.slice(0,5).map((b,i)=>`${i+1}. ${b.title} — ${pLinks(b).amazon}`).join("\n")+"\n(more in Bookshelf app)";
+    const body=wl.slice(0,5).map((b,i)=>{const l=pLinks(b);return`${i+1}. ${b.title} by ${b.authors?.[0]||"?"}\n   Amazon: ${l.amazon}\n   B&N: ${l.bn}`;}).join("\n\n")+"\n\n(See all in Bookshelf app)";
     nativeShare("My Book Wishlist",body,()=>window.open(`sms:?&body=${encodeURIComponent(body)}`));
     onClose();
   }
@@ -1686,11 +1686,11 @@ function SuggestScreen({books,onAddWishlist}) {
   async function generate(){setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   async function generateMood(){if(!mood.trim())return;setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   function shareText(){
-    const body=sugs.slice(0,5).map((b,i)=>`${i+1}. ${b.title} by ${b.authors?.[0]} ${pLinks(b).amazon}`).join("\n")+"\n(more in Bookshelf)";
+    const body=sugs.slice(0,5).map((b,i)=>{const l=pLinks(b);return`${i+1}. ${b.title} by ${b.authors?.[0]||"?"}\n   Amazon: ${l.amazon}`;}).join("\n\n")+"\n\n(more in Bookshelf)";
     nativeShare("My Book Suggestions",body,()=>window.open(`sms:?&body=${encodeURIComponent(body)}`));
     setShareOpen(false);
   }
-  function shareEmail(){const lines=["📚 My Book Suggestions\n",...sugs.map((b,i)=>{const l=pLinks(b);return[`${i+1}. ${b.title} by ${b.authors?.[0]} (${b.year||"?"})`,b.price?`   Price: ${b.price}`:"",b.reason?`   Why: ${b.reason}`:"",`   Amazon: ${l.amazon}`,`   B&N: ${l.bn}`,`   Half Price Books: ${l.hpb}`,""].filter(Boolean).join("\n");})];window.open(`mailto:?subject=${encodeURIComponent("My Book Suggestions")}&body=${encodeURIComponent(lines.join("\n"))}`);setShareOpen(false);}
+  function shareEmail(){const w=window.open("","_blank");const tip='<div style="background:#f5f0e8;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:13px;color:#5a3e28;font-family:Arial,sans-serif">📋 <strong>To email this list:</strong> Select all (Ctrl+A / ⌘+A), copy (Ctrl+C / ⌘+C), then paste into Gmail, Outlook, or Apple Mail.</div>';w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Book Suggestions</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{font-size:28px;margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e0d0b8}.num{color:#6366f1;font-weight:bold;font-size:18px}.title{font-size:16px;font-weight:bold;margin:3px 0}.auth{color:#7a5c3a}.meta{font-size:12px;color:#a08060;margin:3px 0}.reason{font-size:13px;font-style:italic;margin:6px 0;color:#4a3020}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px}.links{display:flex;gap:14px;margin-top:8px}.links a{font-size:12px;color:#1a3c5e;text-decoration:none}</style></head><body>${tip}<h1>📚 Book Suggestions</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>${sugs.map((b,i)=>{const l=pLinks(b);return\`<div class="book"><span class="num">${i+1}.</span><div class="title">${b.title}${b.price?\`<span class="price">${b.price}</span>\`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"}</div><div class="meta">${[b.genre,b.year].filter(Boolean).join(" · ")}</div>${b.reason?\`<div class="reason">"${b.reason}"</div>\`:""}<div class="links"><a href="${l.amazon}">🛒 Amazon</a> · <a href="${l.bn}">📗 Barnes &amp; Noble</a> · <a href="${l.hpb}">🏷 Half Price Books</a></div></div>\`;}).join("")}</body></html>`);w.document.close();setShareOpen(false);}
   function sharePDF(){const w=window.open("","_blank");w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Book Suggestions</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{font-size:28px;margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e0d0b8}.num{color:#6366f1;font-weight:bold;font-size:18px}.title{font-size:16px;font-weight:bold;margin:3px 0}.auth{color:#7a5c3a}.meta{font-size:12px;color:#a08060;margin:3px 0}.reason{font-size:13px;font-style:italic;margin:6px 0;color:#4a3020}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px}.links{display:flex;gap:14px;margin-top:8px}.links a{font-size:12px;color:#1a3c5e}</style></head><body><h1>📚 Book Suggestions</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>${sugs.map((b,i)=>{const l=pLinks(b);return`<div class="book"><span class="num">${i+1}.</span><div class="title">${b.title}${b.price?`<span class="price">${b.price}</span>`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"}</div><div class="meta">${[b.genre,b.year].filter(Boolean).join(" · ")}</div>${b.reason?`<div class="reason">"${b.reason}"</div>`:""}<div class="links"><a href="${l.amazon}">🛒 Amazon</a><a href="${l.bn}">📗 Barnes &amp; Noble</a><a href="${l.hpb}">🏷 Half Price Books</a></div></div>`;}).join("")}</body></html>`);w.document.close();w.onload=()=>{w.focus();w.print();};setShareOpen(false);}
   return <div style={{paddingBottom:84}}>
     <div style={{padding:"48px 20px 16px"}}><h1 style={{fontFamily:"'Playfair Display',serif",fontSize:30,color:P.text,margin:"0 0 6px",fontWeight:900}}>Suggestions</h1><p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,lineHeight:1.5}}>Claude finds your next perfect read from {owned.length} book{owned.length!==1?"s":""} in your library.</p></div>
@@ -2260,57 +2260,167 @@ function SavedViewsBar({views,activeView,onSelect,onManage}) {
           🔖 {v.name}
         </button>
       ))}
-      <button onClick={onManage} style={{flexShrink:0,background:"none",border:"none",color:P.muted,cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,padding:"5px 4px",whiteSpace:"nowrap"}}>Manage ›</button>
+      <button onClick={onManage} style={{flexShrink:0,background:"none",border:"none",color:P.muted,cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,padding:"5px 8px",whiteSpace:"nowrap"}}>✏️ Manage</button>
     </div>
   );
 }
-function SavedViewsModal({views,onSave,onDelete,currentFilters,onClose}) {
-  const [name,setName]=useState("");
-  const activeCount=[currentFilters.status,currentFilters.genre,currentFilters.shelf,currentFilters.sort].filter(v=>v&&v!=="all"&&v!=="recent").length;
-  function saveView(){
-    if(!name.trim()) return;
-    const v={id:crypto.randomUUID(),name:name.trim(),...currentFilters};
-    onSave(v); setName(""); onClose();
+
+// ─── Smart Shelves Modal ──────────────────────────────────────────────────────
+function SmartShelvesModal({views,onSave,onUpdate,onDelete,customShelves,onClose}) {
+  const EMPTY={id:null,name:'',status:'all',titleContains:'',authorContains:'',genreContains:'',yearOp:'',yearVal:'',pagesOp:'',pagesVal:'',ratingOp:'',ratingVal:'',shelf:'all',sort:'recent'};
+  const [mode,setMode]=useState('list'); // 'list' | 'build'
+  const [ed,setEd]=useState(EMPTY);
+
+  function startNew(){setEd({...EMPTY});setMode('build');}
+  function startEdit(v){setEd({...EMPTY,...v});setMode('build');}
+  function save(){
+    if(!ed.name.trim())return;
+    const v={...ed,name:ed.name.trim()};
+    if(v.id){onUpdate(v);}else{onSave({...v,id:crypto.randomUUID()});}
+    setMode('list');
   }
-  return (
+
+  function criteriaSummary(v){
+    const p=[];
+    if(v.status&&v.status!=='all')p.push(SL[v.status]||v.status);
+    if(v.titleContains)p.push(`title: "${v.titleContains}"`);
+    if(v.authorContains)p.push(`author: "${v.authorContains}"`);
+    if(v.genreContains)p.push(`genre: "${v.genreContains}"`);
+    if(v.shelf&&v.shelf!=='all')p.push(`shelf: ${v.shelf}`);
+    const opLabel=op=>op==='eq'?'=':op==='gte'?'≥':'≤';
+    if(v.yearOp&&v.yearVal)p.push(`year ${opLabel(v.yearOp)} ${v.yearVal}`);
+    if(v.pagesOp&&v.pagesVal)p.push(`pages ${opLabel(v.pagesOp)} ${v.pagesVal}`);
+    if(v.ratingOp&&v.ratingVal)p.push(`rating ${opLabel(v.ratingOp)} ${v.ratingVal}★`);
+    return p.length?p.join(' · '):'No filters set';
+  }
+
+  if(mode==='list') return (
     <div>
-      <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,marginTop:0,fontSize:20,marginBottom:4}}>Saved Views</h3>
-      <p style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,marginBottom:20,lineHeight:1.6}}>Save your current filter combination as a named view for quick access.</p>
-      {/* Save current */}
-      <div style={{background:P.bgSurface,borderRadius:14,padding:"16px",marginBottom:20,border:`1px solid ${P.border}`}}>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,fontWeight:700,marginBottom:8,textTransform:"uppercase",letterSpacing:.4}}>Save Current Filters</div>
-        {activeCount===0
-          ?<div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,fontStyle:"italic",marginBottom:12}}>No filters active — set some filters first, then save the view.</div>
-          :<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
-            {currentFilters.status!=="all"&&<Pill label={`Status: ${SL[currentFilters.status]}`} color={SC[currentFilters.status]}/>}
-            {currentFilters.genre!=="all"&&<Pill label={`Genre: ${currentFilters.genre}`} color={P.bgCard} tc={P.text}/>}
-            {currentFilters.shelf!=="all"&&<Pill label={`📂 ${currentFilters.shelf}`} color={P.bgCard} tc={P.text}/>}
-            {currentFilters.sort!=="recent"&&<Pill label={`Sort: ${currentFilters.sort}`} color={P.bgCard} tc={P.text}/>}
-          </div>}
-        <div style={{display:"flex",gap:8}}>
-          <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveView();}} placeholder="View name…" disabled={activeCount===0} style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:10,padding:"10px 12px",fontFamily:"'Nunito',sans-serif",fontSize:14,background:P.bgCard,color:P.text,outline:"none",opacity:activeCount===0?.5:1}}/>
-          <button onClick={saveView} disabled={!name.trim()||activeCount===0} style={{background:name.trim()&&activeCount>0?P.accent:P.disabledBtn,color:"#fff",border:"none",borderRadius:10,padding:"10px 16px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:name.trim()&&activeCount>0?"pointer":"default"}}>Save</button>
-        </div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+        <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,margin:0,fontSize:22}}>Smart Shelves</h3>
+        <button onClick={startNew} style={{background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:'#fff',border:'none',borderRadius:10,padding:'8px 14px',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:'pointer'}}>＋ New Shelf</button>
       </div>
-      {/* Existing views */}
-      {views.length===0
-        ?<div style={{textAlign:"center",padding:"20px 0",color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:13}}>No saved views yet</div>
-        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <p style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:12,marginTop:0,marginBottom:16,lineHeight:1.65}}>
+        Smart shelves filter your library dynamically. A "Star Wars Wishlist" shelf always shows books matching your rules — adding or moving a book updates it instantly.
+      </p>
+      {views.length===0?(
+        <div style={{textAlign:'center',padding:'32px 0',color:P.muted}}>
+          <div style={{fontSize:44,marginBottom:10}}>📂</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:14,marginBottom:4}}>No smart shelves yet</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12}}>Tap "New Shelf" to create your first</div>
+        </div>
+      ):(
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {views.map(v=>(
-            <div key={v.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:P.bgSurface,borderRadius:12,padding:"12px 14px",border:`1px solid ${P.border}`}}>
-              <div>
-                <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,color:P.text,marginBottom:3}}>🔖 {v.name}</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {v.status!=="all"&&<Pill label={SL[v.status]} color={SC[v.status]}/>}
-                  {v.genre!=="all"&&<Pill label={v.genre} color="rgba(99,102,241,.15)" tc={P.accentLt}/>}
-                  {v.shelf&&v.shelf!=="all"&&<Pill label={`📂 ${v.shelf}`} color="rgba(99,102,241,.15)" tc={P.accentLt}/>}
-                  {v.sort&&v.sort!=="recent"&&<Pill label={v.sort} color="rgba(99,102,241,.15)" tc={P.accentLt}/>}
+            <div key={v.id} style={{background:P.bgSurface,borderRadius:14,padding:'12px 14px',border:`1px solid ${P.border}`}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,color:P.text}}>🔖 {v.name}</div>
+                  <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginTop:4,lineHeight:1.5}}>{criteriaSummary(v)}</div>
+                </div>
+                <div style={{display:'flex',gap:6,flexShrink:0}}>
+                  <button onClick={()=>startEdit(v)} style={{background:P.bgCard,border:`1px solid ${P.border}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',fontSize:13}}>✏️</button>
+                  <button onClick={()=>onDelete(v.id)} style={{background:'rgba(239,68,68,.1)',border:'none',borderRadius:8,padding:'6px 10px',color:P.red,cursor:'pointer',fontSize:14,fontWeight:700}}>×</button>
                 </div>
               </div>
-              <button onClick={()=>onDelete(v.id)} style={{background:"rgba(239,68,68,.1)",border:"none",borderRadius:8,padding:"6px 10px",color:P.red,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
             </div>
           ))}
-        </div>}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Builder ──────────────────────────────────────────────────────────────────
+  const F={fontFamily:"'Nunito',sans-serif"};
+  const LBL={...F,fontSize:10,color:P.muted,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:6};
+  const INP={width:'100%',border:`1.5px solid ${P.border}`,borderRadius:8,padding:'8px 12px',...F,fontSize:13,background:P.bgCard,color:P.text,outline:'none',boxSizing:'border-box'};
+  function NumRow({label,opKey,valKey}){
+    const opV=ed[opKey]||'',numV=ed[valKey]||'';
+    const isRating=label==='Rating';
+    return(
+      <div style={{marginBottom:12}}>
+        <div style={LBL}>{label}</div>
+        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+          <select value={opV} onChange={e=>setEd(x=>({...x,[opKey]:e.target.value,[valKey]:e.target.value?x[valKey]:''}))}
+            style={{border:`1.5px solid ${P.border}`,borderRadius:8,padding:'7px 8px',background:P.bgSurface,color:P.text,...F,fontSize:12,outline:'none',flexShrink:0}}>
+            <option value="">Any</option><option value="eq">=</option><option value="gte">≥</option><option value="lte">≤</option>
+          </select>
+          {opV&&(isRating?(
+            <div style={{display:'flex',gap:2}}>
+              {[1,2,3,4,5].map(n=>(
+                <button key={n} onClick={()=>setEd(x=>({...x,[valKey]:String(n)}))}
+                  style={{fontSize:20,background:'none',border:'none',cursor:'pointer',opacity:parseInt(numV)>=n?1:.25,padding:'2px',lineHeight:1}}>★</button>
+              ))}
+            </div>
+          ):(
+            <input type="number" value={numV} onChange={e=>setEd(x=>({...x,[valKey]:e.target.value}))} min={0} placeholder={label}
+              style={{...INP,flex:1}}/>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+        <button onClick={()=>setMode('list')} style={{background:'none',border:'none',color:P.muted,cursor:'pointer',fontSize:14,...F,fontWeight:700,padding:0}}>‹ Back</button>
+        <h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,margin:0,fontSize:20,flex:1}}>{ed.id?'Edit Shelf':'New Smart Shelf'}</h3>
+      </div>
+      {/* Name */}
+      <input value={ed.name} onChange={e=>setEd(x=>({...x,name:e.target.value}))} placeholder="Shelf name (e.g. Star Wars Wishlist)" autoFocus
+        style={{...INP,fontSize:16,padding:'11px 14px',marginBottom:14}}/>
+      <div style={{background:P.bgSurface,borderRadius:14,padding:'14px',marginBottom:14,border:`1px solid ${P.border}`}}>
+        {/* Status */}
+        <div style={{marginBottom:12}}>
+          <div style={LBL}>Status</div>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {["all",...STATUSES].map(s=>(
+              <button key={s} onClick={()=>setEd(x=>({...x,status:s}))}
+                style={{background:ed.status===s?(s==='all'?P.accent:SC[s]||P.accent):P.bgCard,color:ed.status===s?'#fff':P.textLt,border:`1.5px solid ${ed.status===s?(s==='all'?P.accent:SC[s]||P.accent):P.border}`,borderRadius:20,padding:'5px 12px',cursor:'pointer',...F,fontSize:12,fontWeight:700,transition:'all .12s'}}>
+                {s==='all'?'Any':SL[s]}
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Text criteria */}
+        {[['Title contains','titleContains'],['Author contains','authorContains'],['Genre contains','genreContains']].map(([label,key])=>(
+          <div key={key} style={{marginBottom:12}}>
+            <div style={LBL}>{label}</div>
+            <input value={ed[key]} onChange={e=>setEd(x=>({...x,[key]:e.target.value}))} placeholder={`e.g. ${key==='titleContains'?'Star Wars':key==='authorContains'?'Sanderson':'Fantasy'}`}
+              style={INP}/>
+          </div>
+        ))}
+        {/* Numeric criteria */}
+        <NumRow label="Year" opKey="yearOp" valKey="yearVal"/>
+        <NumRow label="Pages" opKey="pagesOp" valKey="pagesVal"/>
+        <NumRow label="Rating" opKey="ratingOp" valKey="ratingVal"/>
+        {/* Static shelf tag */}
+        {customShelves.length>0&&(
+          <div style={{marginBottom:12}}>
+            <div style={LBL}>Also tagged with manual shelf</div>
+            <select value={ed.shelf} onChange={e=>setEd(x=>({...x,shelf:e.target.value}))}
+              style={{...INP,background:P.bgSurface}}>
+              <option value="all">Any shelf</option>
+              {customShelves.map(s=><option key={s} value={s}>📂 {s}</option>)}
+            </select>
+          </div>
+        )}
+        {/* Sort */}
+        <div>
+          <div style={LBL}>Sort</div>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {[['recent','Recent'],['title','Title'],['author','Author'],['rating','Rating'],['pages','Pages']].map(([v,l])=>(
+              <button key={v} onClick={()=>setEd(x=>({...x,sort:v}))}
+                style={{background:ed.sort===v?P.accent:'transparent',color:ed.sort===v?'#fff':P.muted,border:`1px solid ${ed.sort===v?P.accent:P.border}`,borderRadius:8,padding:'5px 10px',cursor:'pointer',...F,fontSize:11,fontWeight:700,transition:'all .12s'}}>{l}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <button onClick={save} disabled={!ed.name.trim()}
+        style={{width:'100%',background:ed.name.trim()?`linear-gradient(135deg,${P.accent},${P.accentDk})`:P.disabledBtn,color:'#fff',border:'none',borderRadius:14,padding:'14px',...F,fontWeight:800,fontSize:15,cursor:ed.name.trim()?'pointer':'default',boxShadow:ed.name.trim()?`0 4px 16px ${P.accentGlow}`:'none'}}>
+        {ed.id?'Save Changes':'Create Shelf'}
+      </button>
     </div>
   );
 }
@@ -2323,7 +2433,7 @@ function FilterBar({filterStatus,setFilterStatus,filterGenre,setFilterGenre,shel
   return (
     <>
       {/* Saved views strip */}
-      <SavedViewsBar views={savedViews} activeView={activeView} onSelect={v=>{setFilterStatus(v.status||"all");setFilterGenre(v.genre||"all");setShelfFilter(v.shelf||"all");setSortBy(v.sort||"recent");onSelectView(v);}} onManage={onManageViews}/>
+      <SavedViewsBar views={savedViews} activeView={activeView} onSelect={v=>{onSelectView(v);}} onManage={onManageViews}/>
       {/* Filter trigger row */}
       <div style={{padding:"0 20px 10px",display:"flex",gap:6,alignItems:"center"}}>
         <button onClick={()=>setOpen(x=>!x)}
@@ -2373,9 +2483,9 @@ function FilterBar({filterStatus,setFilterStatus,filterGenre,setFilterGenre,shel
             {[["recent","Recent"],["title","Title"],["author","Author"],["rating","Rating ★"],["pages","Pages"]].map(([v,l])=><button key={v} onClick={()=>setSortBy(v)} style={{background:sortBy===v?P.accent:"transparent",color:sortBy===v?"#fff":P.muted,border:`1px solid ${sortBy===v?P.accent:P.border}`,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,transition:"all .12s"}}>{l}</button>)}
           </div>
         </div>
-        {/* Save view / close */}
+        {/* Manage shelves / close */}
         <div style={{display:"flex",gap:8,paddingTop:4,borderTop:`1px solid ${P.border}`}}>
-          <button onClick={()=>{setOpen(false);onSaveView();}} style={{flex:1,background:P.bgSurface,color:P.textLt,border:`1px solid ${P.border}`,borderRadius:10,padding:"9px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔖 Save as View</button>
+          <button onClick={()=>{setOpen(false);onSaveView();}} style={{flex:1,background:P.bgSurface,color:P.textLt,border:`1px solid ${P.border}`,borderRadius:10,padding:"9px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔖 Smart Shelves</button>
           <button onClick={()=>setOpen(false)} style={{background:P.accent,color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer"}}>Done</button>
         </div>
       </div>}
@@ -2597,13 +2707,29 @@ function App({ user }) {
   function saveView(){setShowSavedViews(true);}
   function deleteSavedView(id){setSavedViews(vs=>vs.filter(v=>v.id!==id));if(activeView?.id===id)setActiveView(null);}
   function addSavedView(v){setSavedViews(vs=>[...vs,v]);}
-  function applyView(v){setActiveView(v);}
+  function updateSavedView(v){setSavedViews(vs=>vs.map(x=>x.id===v.id?v:x));if(activeView?.id===v.id)setActiveView(v);}
+  function applyView(v){
+    setFilterStatus(v.status||"all");
+    setShelfFilter(v.shelf||"all");
+    setSortBy(v.sort||"recent");
+    setActiveView(v);
+  }
 
   const filtered=useMemo(()=>books.filter(b=>{
     if(filterStatus!=="all"&&b.status!==filterStatus)return false;
     if(filterGenre!=="all"&&b.genre!==filterGenre)return false;
     if(shelfFilter!=="all"&&!(b.customShelves||[]).includes(shelfFilter))return false;
     if(searchQ&&!b.title.toLowerCase().includes(searchQ.toLowerCase())&&!b.authors?.join("").toLowerCase().includes(searchQ.toLowerCase()))return false;
+    // Rich criteria from active smart shelf
+    if(activeView){
+      const v=activeView;
+      if(v.titleContains&&!b.title.toLowerCase().includes(v.titleContains.toLowerCase()))return false;
+      if(v.authorContains&&!(b.authors||[]).join(" ").toLowerCase().includes(v.authorContains.toLowerCase()))return false;
+      if(v.genreContains&&(!b.genre||!b.genre.toLowerCase().includes(v.genreContains.toLowerCase())))return false;
+      if(v.yearOp&&v.yearVal){const by=parseInt(b.year||0),vy=parseInt(v.yearVal);if(v.yearOp==="eq"&&by!==vy)return false;if(v.yearOp==="gte"&&by<vy)return false;if(v.yearOp==="lte"&&by>vy)return false;}
+      if(v.pagesOp&&v.pagesVal){const bp=parseInt(b.pages||0),vp=parseInt(v.pagesVal);if(v.pagesOp==="eq"&&bp!==vp)return false;if(v.pagesOp==="gte"&&bp<vp)return false;if(v.pagesOp==="lte"&&bp>vp)return false;}
+      if(v.ratingOp&&v.ratingVal){const br=b.rating||0,vr=parseInt(v.ratingVal);if(v.ratingOp==="eq"&&br!==vr)return false;if(v.ratingOp==="gte"&&br<vr)return false;if(v.ratingOp==="lte"&&br>vr)return false;}
+    }
     return true;
   }).sort((a,b)=>{
     if(sortBy==="title")return a.title.localeCompare(b.title);
@@ -2611,7 +2737,7 @@ function App({ user }) {
     if(sortBy==="rating")return(b.rating||0)-(a.rating||0);
     if(sortBy==="pages")return(parseInt(b.pages)||0)-(parseInt(a.pages)||0);
     return(b.addedAt||0)-(a.addedAt||0);
-  }),[books,filterStatus,filterGenre,shelfFilter,searchQ,sortBy]);
+  }),[books,filterStatus,filterGenre,shelfFilter,searchQ,sortBy,activeView]);
 
   const loanedBooks=useMemo(()=>books.filter(b=>b.loan),[books]);
   const genres=useMemo(()=>["all",...Array.from(new Set(books.map(b=>b.genre).filter(Boolean)))],[books]);
@@ -2819,7 +2945,7 @@ function App({ user }) {
     {seriesModal    &&<Sheet onClose={()=>setSeriesModal(null)}><SeriesModal newBook={seriesModal.newBook} seriesBooks={seriesModal.seriesBooks} onAddSelected={addSeriesBooks} onDismiss={()=>setSeriesModal(null)}/></Sheet>}
     {showDataModal  &&<Sheet onClose={()=>setShowDataModal(false)}><DataModal books={books} onImport={importBooks} onRestore={books=>restoreFromBackup({books})} onClose={()=>setShowDataModal(false)}/></Sheet>}
     {showOnboarding &&<Sheet onClose={()=>{save("onboarded",true);setShowOnboarding(false);}}><OnboardingSheet onDone={()=>{save("onboarded",true);setShowOnboarding(false);}}/></Sheet>}
-    {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SavedViewsModal views={savedViews} onSave={addSavedView} onDelete={deleteSavedView} currentFilters={{status:filterStatus,genre:filterGenre,shelf:shelfFilter,sort:sortBy}} onClose={()=>setShowSavedViews(false)}/></Sheet>}
+    {showSavedViews &&<Sheet onClose={()=>setShowSavedViews(false)}><SmartShelvesModal views={savedViews} onSave={addSavedView} onUpdate={updateSavedView} onDelete={deleteSavedView} customShelves={customShelves} onClose={()=>setShowSavedViews(false)}/></Sheet>}
     {showFriends    &&<Sheet onClose={()=>setShowFriends(false)}><FriendsScreen user={user} friends={friends} setFriends={setFriends} pendingRequests={pendingRequests} setPendingRequests={setPendingRequests} onClose={()=>setShowFriends(false)}/></Sheet>}
     {showProfileMenu&&<ProfileMenu user={user} pendingRequests={pendingRequests} onFriends={()=>{setShowProfileMenu(false);setShowFriends(true);}} onDataModal={()=>{setShowProfileMenu(false);setShowDataModal(true);}} onAbout={()=>{setShowProfileMenu(false);setShowAbout(true);}} onSignOut={()=>{setShowProfileMenu(false);firebase.auth().signOut();}} onClose={()=>setShowProfileMenu(false)}/>}
     {showAbout&&<Sheet onClose={()=>setShowAbout(false)}><AboutModal onClose={()=>setShowAbout(false)}/></Sheet>}
@@ -2846,10 +2972,11 @@ async function writePublicProfile(firebaseUser) {
   } catch(e) { console.warn('writePublicProfile failed:', e); }
 }
 
-function FriendProfileSheet({ friendUid, friendName, onClose }) {
+function FriendProfileSheet({ friendUid, friendName, myEarnedAchs=[], onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(false);
+  const [achTab, setAchTab] = useState('shared'); // 'shared'|'theirs'|'mine'
 
   useEffect(() => {
     firebase.firestore().doc(`users/${friendUid}`).get()
@@ -2861,15 +2988,28 @@ function FriendProfileSheet({ friendUid, friendName, onClose }) {
   if(err||!data) return <div style={{padding:40,textAlign:"center",fontFamily:"'Nunito',sans-serif",color:P.muted}}>Couldn't load profile.</div>;
 
   const books = data.books || [];
+  const theirAchs = new Set(data.achievements||[]);
+  const myAchs = new Set(myEarnedAchs);
   const year = new Date().getFullYear();
   const readThisYear = books.filter(b=>b.status==="read"&&(b.readDates||[]).some(d=>d.startsWith(String(year)))).length;
   const goal = data.goal || 0;
   const pct = goal > 0 ? Math.min(100, Math.round(readThisYear/goal*100)) : 0;
   const wishlist = books.filter(b=>b.status==="wishlist");
-  const earned = (data.achievements||[]).length;
-  const LEVELS=[{n:"Curious Mind",min:0},{n:"Avid Reader",min:100},{n:"Book Lover",min:300},{n:"Bibliophile",min:600},{n:"Scholar",min:1000},{n:"Legendary",min:2000}];
-  const xp = books.filter(b=>b.status==="read").length*50;
-  const level = [...LEVELS].reverse().find(l=>xp>=l.min)||LEVELS[0];
+  const theirXP = calcXP(books, goal, data.achievements||[]);
+  const {level:theirLevel} = calcLevel(theirXP);
+  const theirLevelTitle = LEVEL_TITLES[Math.min(theirLevel, LEVEL_TITLES.length-1)];
+
+  // Achievement buckets
+  const shared   = ACHIEVEMENTS.filter(a=>theirAchs.has(a.id)&&myAchs.has(a.id));
+  const theirsOnly = ACHIEVEMENTS.filter(a=>theirAchs.has(a.id)&&!myAchs.has(a.id));
+  const mineOnly = ACHIEVEMENTS.filter(a=>!theirAchs.has(a.id)&&myAchs.has(a.id));
+
+  const ACH_TABS = [
+    {k:'shared',  label:`🤝 Both (${shared.length})`},
+    {k:'theirs',  label:`🎯 Theirs (${theirsOnly.length})`},
+    {k:'mine',    label:`⭐ Mine (${mineOnly.length})`},
+  ];
+  const achList = achTab==='shared'?shared:achTab==='theirs'?theirsOnly:mineOnly;
 
   return (
     <div style={{padding:"4px 0 24px"}}>
@@ -2880,7 +3020,8 @@ function FriendProfileSheet({ friendUid, friendName, onClose }) {
         </div>
         <div>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text}}>{friendName}</div>
-          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.accent,fontWeight:700}}>{level.n} · {xp} XP · {earned} achievement{earned!==1?"s":""}</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.accent,fontWeight:700}}>{theirLevelTitle} · Lv {theirLevel} · {theirXP.toLocaleString()} XP</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginTop:2}}>{theirAchs.size} badge{theirAchs.size!==1?'s':''} · {shared.length} in common with you</div>
         </div>
       </div>
 
@@ -2908,6 +3049,35 @@ function FriendProfileSheet({ friendUid, friendName, onClose }) {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Achievements comparison */}
+      <div style={{padding:"16px 0",borderBottom:`1px solid ${P.border}`}}>
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,color:P.muted,textTransform:"uppercase",letterSpacing:.5,marginBottom:12}}>Achievements</div>
+        {/* Tabs */}
+        <div style={{display:"flex",gap:4,marginBottom:14,background:P.bgSurface,borderRadius:10,padding:3}}>
+          {ACH_TABS.map(({k,label})=>(
+            <button key={k} onClick={()=>setAchTab(k)}
+              style={{flex:1,padding:'7px 4px',borderRadius:8,border:'none',background:achTab===k?P.bgCard:'transparent',color:achTab===k?P.text:P.muted,fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:11,cursor:'pointer',boxShadow:achTab===k?'0 1px 4px rgba(0,0,0,.2)':'none',transition:'all .15s',whiteSpace:'nowrap'}}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {achList.length===0?(
+          <div style={{textAlign:'center',padding:'16px 0',fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted}}>
+            {achTab==='shared'?'No badges in common yet':`No badges in this category`}
+          </div>
+        ):(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:8}}>
+            {achList.map(a=>(
+              <div key={a.id} style={{background:P.bgSurface,borderRadius:12,padding:"10px 8px",border:`1.5px solid ${achTab==='shared'?P.accent:achTab==='theirs'?'rgba(99,102,241,.4)':P.border}`,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+                <div style={{fontSize:22}}>{a.icon}</div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:800,color:P.text,lineHeight:1.2}}>{a.title}</div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:9,color:P.gold,fontWeight:700}}>{a.xp} XP</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Wishlist */}
@@ -3182,7 +3352,7 @@ function FriendsScreen({ user, friends, setFriends, pendingRequests, setPendingR
 
       {/* Friend Profile Sheet */}
       {viewingFriend&&<Sheet onClose={()=>setViewingFriend(null)}>
-        <FriendProfileSheet friendUid={viewingFriend.uid} friendName={viewingFriend.displayName} onClose={()=>setViewingFriend(null)}/>
+        <FriendProfileSheet friendUid={viewingFriend.uid} friendName={viewingFriend.displayName} myEarnedAchs={earnedAchs} onClose={()=>setViewingFriend(null)}/>
       </Sheet>}
     </div>
   );
