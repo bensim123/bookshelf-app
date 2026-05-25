@@ -16,16 +16,19 @@ A personal book library tracker that runs as a web app — no app store, no inst
 - **Notes & highlights** — personal annotations per book
 - **Loan tracker** — who has your book and since when
 - **Custom shelves** — organize beyond status (e.g. "Beach Reads", "Gift Ideas")
-- **Series detection** — automatically finds companion books when you add a new title; re-trigger anytime from the book detail screen
+- **Smart Shelves** — dynamic shelves that auto-update as your library changes; filter by title, author, genre, year, pages, rating, and status with =, ≥, ≤ operators; save any combo as a named shelf
+- **Series detection** — automatically checks for companion books when you add a title; shows a "Checking for series companions…" notice while running; re-trigger anytime from the book detail screen
 - **Stats screen** — books by status/format, reading streak, pages read, hours listened
-- **Achievements** — 45 badges across 6 categories with XP and level system
-- **AI suggestions** — personalized reading picks or mood-based recommendations
-- **Saved views** — save filter + sort combinations as named presets
+- **Achievements** — 57 badges across 6 categories with XP and level system
+  - Reading milestones, genre mastery (Sci-Fi, Fantasy, Mystery, Thriller, Non-Fiction, History), format achievements, depth tracking, and more
+- **Achievement comparison** — compare your earned badges with friends side-by-side
+- **AI suggestions** — personalized reading picks or mood-based recommendations (never suggests books already in your library)
 - **Import / Export CSV** — export your library to CSV (opens in Excel/Sheets); import from Bookshelf CSV, Goodreads, or StoryGraph with step-by-step instructions
 - **Dark and light themes** — persists across sessions
 - **Works offline** after first load (service worker caching)
 - **Multi-device sync** via Firebase Firestore — your library follows you everywhere
 - **Google Sign-In** — one tap login, no password
+- **Friends** — add friends by email, view their library stats and achievements
 
 ---
 

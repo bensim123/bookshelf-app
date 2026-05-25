@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v26';
+const CACHE='bookshelf-v27';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v26 ok');
+        console.log('SW v27 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -290,6 +290,9 @@ const ACHIEVEMENTS = [
   {id:"series_fan",    cat:"library", icon:"📖", title:"Series Fan",         desc:"Collect 3+ books from the same series", xp:75, check:b=>{const owned=b.filter(x=>['owned','reading','read'].includes(x.status));const s={};owned.forEach(x=>{const sn=extractSeries(x);if(sn){const k=sn.toLowerCase();s[k]=(s[k]||0)+1;}});return Object.values(s).some(c=>c>=3);}},
   {id:"pb_collector",  cat:"library", icon:"📗", title:"Paperback Paradise", desc:"Own 10 paperbacks",                 xp:120,  check:b=>ownByBinding(b,"paperback").length>=10},
   {id:"hc_devotee",    cat:"library", icon:"📘", title:"Hardcover Devotee",  desc:"Own 5 hardcovers",                  xp:100,  check:b=>ownByBinding(b,"hardcover").length>=5},
+  {id:"wishlist_20",   cat:"library", icon:"📋", title:"Wish Big",           desc:"Add 20 books to your wishlist",      xp:100,  check:b=>b.filter(x=>x.status==="wishlist").length>=20},
+  {id:"big_library",   cat:"library", icon:"🏰", title:"Grand Library",      desc:"Add 100 books to your library",      xp:500,  check:b=>b.length>=100},
+  {id:"series_complete",cat:"library",icon:"🏁", title:"Series Collected",   desc:"Own 5+ books in the same series",    xp:250,  check:b=>{const s={};b.filter(x=>['owned','reading','read'].includes(x.status)).forEach(x=>{const sn=extractSeries(x);if(sn){const k=sn.toLowerCase();s[k]=(s[k]||0)+1;}});return Object.values(s).some(c=>c>=5);}},
 
   // ── Depth (notes, ratings, highlights, progress) ──────────────────────────────
   {id:"critic",        cat:"depth",   icon:"⭐", title:"The Critic",         desc:"Rate 10 books",                     xp:100,  check:b=>b.filter(x=>x.rating>0).length>=10},
@@ -300,10 +303,13 @@ const ACHIEVEMENTS = [
   {id:"librarian_lend",cat:"depth",   icon:"🤝", title:"Generous Reader",    desc:"Lend a book to a friend",           xp:75,   check:b=>b.some(x=>x.loan)},
   {id:"honest",        cat:"depth",   icon:"🚫", title:"Honest Reviewer",    desc:"Mark a book as DNF",                xp:30,   check:b=>b.some(x=>x.status==="dnf")},
   {id:"re_reader",     cat:"depth",   icon:"🔁", title:"Re-Reader",          desc:"Read the same book twice",           xp:100,  check:b=>b.some(x=>(x.readDates||[]).length>=2)},
+  {id:"five_stars",    cat:"depth",   icon:"🌟", title:"Hall of Fame",       desc:"Give 5-star ratings to 5 books",     xp:100,  check:b=>b.filter(x=>x.rating===5).length>=5},
+  {id:"highlighter",   cat:"depth",   icon:"💡", title:"Deep Diver",         desc:"Add 25 highlights across your library", xp:200, check:b=>b.reduce((s,x)=>s+(x.highlights?.length||0),0)>=25},
 
   // ── Page count milestones ──────────────────────────────────────────────────────
   {id:"quick_read",    cat:"reading", icon:"🌠", title:"Quick Finish",       desc:"Read a book under 200 pages",        xp:50,   check:b=>b.some(x=>x.status==="read"&&parseInt(x.pages||0)>0&&parseInt(x.pages||0)<200)},
   {id:"epic_journey",  cat:"reading", icon:"🏔️",  title:"Epic Journey",       desc:"Read a book over 600 pages",         xp:150,  check:b=>b.some(x=>x.status==="read"&&parseInt(x.pages||0)>=600)},
+  {id:"binge_month",   cat:"reading", icon:"🔥", title:"Month Binge",        desc:"Read 5 books in a single month",     xp:300,  check:b=>{const m={};b.filter(x=>x.status==="read").forEach(x=>{const d=x.readDates?.[0]||x.addedAt;if(d){const ym=new Date(d).toISOString().slice(0,7);m[ym]=(m[ym]||0)+1;}});return Object.values(m).some(n=>n>=5);}},
 
   // ── Exploration (genres, time, language) ──────────────────────────────────────
   {id:"genre_hopper",  cat:"explore", icon:"🌍", title:"Genre Hopper",       desc:"Read books in 3 different genres",  xp:150,  check:b=>new Set(b.filter(x=>x.status==="read"&&x.genre).map(x=>x.genre)).size>=3},
@@ -311,6 +317,12 @@ const ACHIEVEMENTS = [
   {id:"genre_master",  cat:"explore", icon:"🎭", title:"Genre Master",       desc:"Read 5 books in the same genre",    xp:200,  check:b=>{const g={};b.filter(x=>x.status==="read"&&x.genre).forEach(x=>{g[x.genre]=(g[x.genre]||0)+1;});return Object.values(g).some(c=>c>=5);}},
   {id:"time_traveler", cat:"explore", icon:"⏳", title:"Time Traveler",      desc:"Read a classic published before 1970", xp:100, check:b=>b.some(x=>x.status==="read"&&parseInt(x.year||9999)<1970)},
   {id:"polyglot",      cat:"explore", icon:"🌐", title:"Polyglot",           desc:"Read a book in a foreign language", xp:200,  check:b=>b.some(x=>x.status==="read"&&x.language&&x.language!=="en")},
+  {id:"scifi_reader",  cat:"explore", icon:"🚀", title:"Space Cadet",        desc:"Read 3 science fiction books",      xp:150,  check:b=>b.filter(x=>x.status==="read"&&/sci.?fi|science.?fiction/i.test(x.genre||"")).length>=3},
+  {id:"fantasy_reader",cat:"explore", icon:"🧙", title:"Fantasy Fan",        desc:"Read 3 fantasy books",               xp:150,  check:b=>b.filter(x=>x.status==="read"&&/fantasy/i.test(x.genre||"")).length>=3},
+  {id:"mystery_reader",cat:"explore", icon:"🔍", title:"Amateur Detective",  desc:"Read 3 mystery books",               xp:150,  check:b=>b.filter(x=>x.status==="read"&&/mystery/i.test(x.genre||"")).length>=3},
+  {id:"thriller_reader",cat:"explore",icon:"⚡", title:"Edge of Your Seat",  desc:"Read 3 thriller books",              xp:150,  check:b=>b.filter(x=>x.status==="read"&&/thriller/i.test(x.genre||"")).length>=3},
+  {id:"nonfiction_fan",cat:"explore", icon:"📰", title:"Truth Seeker",       desc:"Read 5 non-fiction books",           xp:175,  check:b=>b.filter(x=>x.status==="read"&&/non.?fiction|nonfiction/i.test(x.genre||"")).length>=5},
+  {id:"history_buff",  cat:"explore", icon:"🏺", title:"History Buff",       desc:"Read 3 history or historical fiction books", xp:150, check:b=>b.filter(x=>x.status==="read"&&/histor/i.test(x.genre||"")).length>=3},
 
   // ── Goals ─────────────────────────────────────────────────────────────────────
   {id:"goal_set",      cat:"goals",   icon:"🎯", title:"Goal Setter",        desc:"Set a yearly reading goal",         xp:25,   check:(b,m)=>m?.goal>0},
@@ -368,6 +380,18 @@ const ACHIEVEMENT_PROGRESS = {
   genre_hopper: b=>({n:new Set(b.filter(x=>x.status==="read"&&x.genre).map(x=>x.genre)).size, max:3}),
   renaissance:  b=>({n:new Set(b.filter(x=>x.status==="read"&&x.genre).map(x=>x.genre)).size, max:5}),
   genre_master: b=>{const g={};b.filter(x=>x.status==="read"&&x.genre).forEach(x=>{g[x.genre]=(g[x.genre]||0)+1;});const vals=Object.values(g);return{n:vals.length?Math.max(...vals):0,max:5};},
+  scifi_reader:   b=>({n:b.filter(x=>x.status==="read"&&/sci.?fi|science.?fiction/i.test(x.genre||"")).length, max:3}),
+  fantasy_reader: b=>({n:b.filter(x=>x.status==="read"&&/fantasy/i.test(x.genre||"")).length,                  max:3}),
+  mystery_reader: b=>({n:b.filter(x=>x.status==="read"&&/mystery/i.test(x.genre||"")).length,                  max:3}),
+  thriller_reader:b=>({n:b.filter(x=>x.status==="read"&&/thriller/i.test(x.genre||"")).length,                 max:3}),
+  nonfiction_fan: b=>({n:b.filter(x=>x.status==="read"&&/non.?fiction|nonfiction/i.test(x.genre||"")).length,  max:5}),
+  history_buff:   b=>({n:b.filter(x=>x.status==="read"&&/histor/i.test(x.genre||"")).length,                   max:3}),
+  five_stars:     b=>({n:b.filter(x=>x.rating===5).length,                                                      max:5}),
+  wishlist_20:    b=>({n:b.filter(x=>x.status==="wishlist").length,                                              max:20}),
+  big_library:    b=>({n:b.length,                                                                               max:100}),
+  highlighter:    b=>({n:b.reduce((s,x)=>s+(x.highlights?.length||0),0),                                        max:25}),
+  binge_month:    b=>{const m={};b.filter(x=>x.status==="read").forEach(x=>{const d=x.readDates?.[0]||x.addedAt;if(d){const ym=new Date(d).toISOString().slice(0,7);m[ym]=(m[ym]||0)+1;}});const vals=Object.values(m);return{n:vals.length?Math.max(...vals):0,max:5};},
+  series_complete:b=>{const s={};b.filter(x=>['owned','reading','read'].includes(x.status)).forEach(x=>{const sn=extractSeries(x);if(sn){const k=sn.toLowerCase();s[k]=(s[k]||0)+1;}});const vals=Object.values(s);return{n:vals.length?Math.max(...vals):0,max:5};},
 };
 
 function calcXP(books, goal, earned=[]) {
@@ -726,26 +750,31 @@ Reply ONLY with a JSON array, no markdown fences:
 }
 async function aiSuggest(books) {
   const ro=books.filter(b=>["read","owned","reading"].includes(b.status));
+  const allTitles=books.map(b=>b.title).slice(0,50).join(", ");
   const prompt=`You are a passionate librarian. Suggest exactly 25 books the reader will love.
 Read/owned: ${ro.map(b=>b.title).slice(0,25).join(", ")}
 Genres: ${[...new Set(ro.map(b=>b.genre).filter(Boolean))].join(", ")||"varied"}
 Authors: ${[...new Set(ro.map(b=>b.authors?.[0]).filter(Boolean))].slice(0,12).join(", ")||"varied"}
-Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price.
+Already in library (DO NOT suggest these): ${allTitles}
+Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price. Never suggest a book already in their library.
 Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
   const text=(await aiText(prompt,5000)).replace(/```json|```/g,"").trim();
-  const wlSet=new Set(books.map(b=>b.title.toLowerCase()));
-  const base=JSON.parse(text).filter(s=>s.title&&!wlSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  const libSet=new Set(books.map(b=>b.title.toLowerCase()));
+  const base=JSON.parse(text).filter(s=>s.title&&!libSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
   const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
   return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
 }
 async function aiMoodSuggest(mood,books) {
   const ro=books.filter(b=>["read","owned"].includes(b.status)).map(b=>b.title).slice(0,20);
+  const allTitles=books.map(b=>b.title).slice(0,50).join(", ");
   const prompt=`Reader wants: "${mood}". They've enjoyed: ${ro.join(", ")||"various"}.
-Suggest 8 books matching this mood. Respond ONLY with JSON array:
+Already in library (DO NOT suggest these): ${allTitles}
+Suggest 8 books matching this mood that are NOT already in their library. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
   const text=(await aiText(prompt,2000)).replace(/```json|```/g,"").trim();
-  const base=JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  const libSet=new Set(books.map(b=>b.title.toLowerCase()));
+  const base=JSON.parse(text).filter(s=>s.title&&!libSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
   const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
   return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
 }
@@ -804,9 +833,9 @@ function ProgressBar({value,max,color=P.accent}) {
   return <div style={{background:"rgba(128,128,160,.12)",borderRadius:8,height:6,overflow:"hidden",width:"100%"}}><div style={{width:`${pct}%`,height:"100%",background:`linear-gradient(90deg,${color},${color}cc)`,borderRadius:8,transition:"width .5s cubic-bezier(.4,0,.2,1)",boxShadow:`0 0 8px ${color}66`}}/></div>;
 }
 function BuyButtons({book,compact=false}) {
-  const links=pLinks(book),price=book.price,gap=compact?5:10,pad=compact?"7px 6px":"11px 8px",fs=compact?11:13;
-  const btn=(href,bg,color,emoji,label)=><a href={href} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:4,background:bg,color,borderRadius:compact?10:14,padding:pad,fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:fs,textDecoration:"none",whiteSpace:"nowrap",border:"1px solid rgba(255,255,255,.08)",transition:"opacity .15s"}}><span>{emoji}</span><span>{label}</span></a>;
-  return <div>{price&&<div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>{compact?null:"Buy · "}<span style={{color:"#34d399",fontWeight:800,fontSize:12}}>avg {price}</span></div>}<div style={{display:"flex",gap}}>{btn(links.amazon,"#b45309","#fff","🛒",compact?" Amzn":" Amazon")}{btn(links.bn,"#1e40af","#fff","📗"," B&N")}{btn(links.hpb,"#991b1b","#fff","🏷",compact?" HPB":"Half Price")}</div></div>;
+  const links=pLinks(book),price=book.price,gap=compact?5:8,pad=compact?"7px 6px":"10px 8px",fs=compact?11:12;
+  const btn=(href,bg,color,emoji,label)=><a href={href} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{flex:"1 1 0",display:"flex",alignItems:"center",justifyContent:"center",gap:3,background:bg,color,borderRadius:compact?10:12,padding:pad,fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:fs,textDecoration:"none",whiteSpace:"nowrap",border:"1px solid rgba(255,255,255,.1)",transition:"opacity .15s",minWidth:0,overflow:"hidden"}}><span style={{flexShrink:0}}>{emoji}</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span></a>;
+  return <div>{price&&<div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:6,display:"flex",alignItems:"center",gap:6}}>{compact?null:"Buy · "}<span style={{color:"#34d399",fontWeight:800,fontSize:12}}>avg {price}</span></div>}<div style={{display:"flex",gap,flexWrap:"wrap"}}>{btn(links.amazon,"#131921","#ff9900","🛒",compact?"Amzn":"Amazon")}{btn(links.bn,"#1e40af","#fff","📗","B&N")}{btn(links.hpb,"#991b1b","#fff","🏷","HPB")}</div></div>;
 }
 
 // ─── Goal Ring ────────────────────────────────────────────────────────────────
@@ -1285,15 +1314,15 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="26";
+const APP_VERSION="27";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
-  {title:"Series Detection",icon:"🔗",body:`When you add a new book, the app automatically checks if it's part of a series and offers to add the companion books to your Wishlist. You can also trigger this anytime from the book detail screen using the 🔗 Series button.`},
+  {title:"Series Detection",icon:"🔗",body:`When you add a new book, the app automatically checks if it's part of a series — you'll see a "Checking for series companions…" notice. If companion books are found, you can add them to your Wishlist in one tap. You can also trigger this anytime from the book detail screen using the 🔗 Series button.`},
   {title:"Multiple Formats",icon:"📦",body:`Own both the paperback and audiobook? The app keeps one record per title. Toggle additional formats in the Owned Formats section of the book detail. All owned formats appear as icons on the book card.`},
-  {title:"AI Features",icon:"✨",body:`The Suggest tab offers two AI-powered tools:\n• Personalized Picks — 25 recommendations based on your library\n• Mood Search — describe a mood or theme and get matching books\nSeries detection also uses AI to find complete series lists.`},
-  {title:"Achievements & XP",icon:"🏆",body:`Earn badges by reaching milestones: finishing books, exploring genres, tracking progress, lending books, and more. Each badge awards XP. Enough XP raises your reader level, shown at the top of the Awards tab.`},
-  {title:"Custom Shelves & Filters",icon:"📂",body:`Create custom shelves (e.g. "Beach Reads", "Signed Copies") from the 📂 button in the library header. Apply them in the book detail view. Use ⚙ Filter & Sort to filter by status, genre, shelf, or sort order. Save any combination as a named view.`},
+  {title:"AI Features",icon:"✨",body:`The Suggest tab offers two AI-powered tools:\n• Personalized Picks — 25 recommendations based on your library\n• Mood Search — describe a mood or theme and get matching books\nSuggestions never include books already in your library. Series detection also uses AI to find complete series lists.`},
+  {title:"Achievements & XP",icon:"🏆",body:`Earn 57 badges across 6 categories — finishing books, mastering genres (Sci-Fi, Fantasy, Mystery, Thriller, Non-Fiction, History), tracking progress, format achievements, and more. Each badge awards XP. Enough XP raises your reader level. Compare your badges with friends from the Friends screen.`},
+  {title:"Smart Shelves & Filters",icon:"📂",body:`Create custom shelves (e.g. "Beach Reads", "Signed Copies") from the 📂 button in the library header. Use Smart Shelves (⭐ icon) to create dynamic views that filter by title, author, genre, year, pages, rating, and status — books automatically appear or leave the shelf as your library changes. Save any filter + sort combo as a named shelf.`},
   {title:"Import & Export",icon:"📤",body:`Your library automatically syncs across devices via Firebase when you're signed in with Google. You can also export your full library to CSV from the Profile menu → Import / Export. The CSV opens in Excel or Sheets and can be imported back into Bookshelf at any time. You can also import from Goodreads or StoryGraph — step-by-step instructions are included in the Import tab.`},
 ];
 function AboutModal({onClose}) {
@@ -1835,13 +1864,21 @@ function AchievementsScreen({books, goal, earned}) {
   const totalXPAvailable = ACHIEVEMENTS.reduce((s,a)=>s+a.xp,0);
   const [filter, setFilter] = React.useState("all"); // "all" | "earned" | "locked"
   const categories = [
-    {label:"📚 Reading",  ids:["first_book","five_books","ten_books","twentyfive","fifty_books","century","speed_reader","quick_read","epic_journey"]},
-    {label:"🗂 Library",  ids:["library10","library50","wishlist5","series_fan","pb_collector","hc_devotee"]},
-    {label:"✏️ Depth",    ids:["critic","five_star","annotator","note_taker","halfway","librarian_lend","honest","re_reader"]},
-    {label:"🌍 Explore",  ids:["genre_hopper","renaissance","genre_master","time_traveler","polyglot"]},
+    {label:"📚 Reading",  ids:["first_book","five_books","ten_books","twentyfive","fifty_books","century","speed_reader","quick_read","epic_journey","binge_month"]},
+    {label:"🗂 Library",  ids:["library10","library50","wishlist5","series_fan","pb_collector","hc_devotee","wishlist_20","big_library","series_complete"]},
+    {label:"✏️ Depth",    ids:["critic","five_star","annotator","note_taker","halfway","librarian_lend","honest","re_reader","five_stars","highlighter"]},
+    {label:"🌍 Explore",  ids:["genre_hopper","renaissance","genre_master","time_traveler","polyglot","scifi_reader","fantasy_reader","mystery_reader","thriller_reader","nonfiction_fan","history_buff"]},
     {label:"🎯 Goals",    ids:["goal_set","goal_half","goal_done"]},
     {label:"🎧 Format",   ids:["first_listen","on_the_road","ears_open","audio_addict","marathon_ear","binge_listen","pixel_pages","digital_shelf","ereader","paperless","format_curious","triple_format","omni_reader","multi_format"]},
   ];
+  // Compute all progress values once, not on every badge render
+  const allProgress = React.useMemo(()=>{
+    const p={};
+    Object.keys(ACHIEVEMENT_PROGRESS).forEach(id=>{
+      if(!earnedSet.has(id)) p[id]=ACHIEVEMENT_PROGRESS[id](books);
+    });
+    return p;
+  },[books, earnedSet]);
   return (
     <div style={{paddingBottom:84}}>
       <div style={{padding:"44px 20px 20px"}}>
@@ -1886,7 +1923,7 @@ function AchievementsScreen({books, goal, earned}) {
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
                 {catAchs.map(a=>{
                   const isEarned=earnedSet.has(a.id);
-                  const prog=!isEarned&&ACHIEVEMENT_PROGRESS[a.id]?ACHIEVEMENT_PROGRESS[a.id](books):null;
+                  const prog=!isEarned?allProgress[a.id]??null:null;
                   return <AchievementBadge key={a.id} achievement={a} earned={isEarned} progress={prog}/>;
                 })}
               </div>
@@ -2648,6 +2685,7 @@ function App({ user }) {
     if(mergeResult==="format_added"){showToast(`${FI[book.bookFormat||"physical"]} Format added to your existing entry!`);return;}
     if(mergeResult==="already_owned")return; // silent — already in library
     try {
+      showToast("🔍 Checking for series companions…");
       const st=await fetchSeriesTitles(book, currentBooks||books);
       if(!st.length) return; // standalone book — stay silent
       setBooks(prev=>{
@@ -3088,10 +3126,10 @@ function FriendProfileSheet({ friendUid, friendName, myEarnedAchs=[], onClose })
           return <div key={b.id} style={{background:P.bgSurface,borderRadius:12,padding:"12px",marginBottom:8,border:`1px solid ${P.border}`}}>
             <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,marginBottom:4}}>{b.title}</div>
             <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,marginBottom:8}}>{b.authors?.[0]||""}</div>
-            <div style={{display:"flex",gap:6}}>
-              {[["🛒 Amazon",links.amazon,"#b45309"],["📗 B&N",links.bn,"#1e40af"],["🏷 HPB",links.hpb,"#991b1b"]].map(([l,u,c])=>(
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[["🛒 Amazon",links.amazon,"#131921","#ff9900"],["📗 B&N",links.bn,"#1e40af","#fff"],["🏷 HPB",links.hpb,"#991b1b","#fff"]].map(([l,u,bg,tc])=>(
                 <a key={l} href={u} target="_blank" rel="noreferrer"
-                  style={{flex:1,background:c,color:"#fff",borderRadius:8,padding:"6px 4px",fontFamily:"'Nunito',sans-serif",fontSize:10,fontWeight:700,textAlign:"center",textDecoration:"none",display:"block"}}>{l}</a>
+                  style={{flex:"1 1 0",background:bg,color:tc,borderRadius:8,padding:"6px 4px",fontFamily:"'Nunito',sans-serif",fontSize:10,fontWeight:700,textAlign:"center",textDecoration:"none",display:"block",minWidth:0}}>{l}</a>
               ))}
             </div>
           </div>;
