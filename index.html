@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v28';
+const CACHE='bookshelf-v29';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v28 ok');
+        console.log('SW v29 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -394,78 +394,212 @@ const ACHIEVEMENT_PROGRESS = {
   series_complete:b=>{const s={};b.filter(x=>['owned','reading','read'].includes(x.status)).forEach(x=>{const sn=extractSeries(x);if(sn){const k=sn.toLowerCase();s[k]=(s[k]||0)+1;}});const vals=Object.values(s);return{n:vals.length?Math.max(...vals):0,max:5};},
 };
 
-// ─── Monthly Challenge Helpers ────────────────────────────────────────────────
-function booksReadInMonth(books,y,m){return books.filter(b=>{if(b.status!=="read")return false;if(b.readDates?.length)return b.readDates.some(d=>{const dt=new Date(d);return dt.getFullYear()===y&&dt.getMonth()+1===m;});if(b.addedAt){const dt=new Date(b.addedAt);return dt.getFullYear()===y&&dt.getMonth()+1===m;}return false;});}
-function booksAddedInMonth(books,y,m){return books.filter(b=>{if(!b.addedAt)return false;const dt=new Date(b.addedAt);return dt.getFullYear()===y&&dt.getMonth()+1===m;});}
-function progressLogsInMonth(books,y,m){return books.flatMap(b=>(b.progressHistory||[]).filter(h=>{if(!h.date)return false;const dt=new Date(h.date);return dt.getFullYear()===y&&dt.getMonth()+1===m;}));}
+// ─── Monthly Challenge helpers ───────────────────────────────────────────────
+function booksReadInMonth(books,y,m){
+  return books.filter(b=>{
+    if(b.status!=="read")return false;
+    if(b.readDates&&b.readDates.length)
+      return b.readDates.some(d=>{const dt=new Date(d);return dt.getFullYear()===y&&dt.getMonth()+1===m;});
+    if(b.addedAt){const dt=new Date(b.addedAt);return dt.getFullYear()===y&&dt.getMonth()+1===m;}
+    return false;
+  });
+}
+function booksAddedInMonth(books,y,m){
+  return books.filter(b=>{
+    if(!b.addedAt)return false;
+    const dt=new Date(b.addedAt);
+    return dt.getFullYear()===y&&dt.getMonth()+1===m;
+  });
+}
 
-const MONTHLY_CHALLENGES = [
-// ── 2026 ──────────────────────────────────────────────────────────────────────
-{ym:"2026-05",icon:"🌸",title:"Spring Awakening",    xp:150,desc:"Read any book this month",                              check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
-{ym:"2026-06",icon:"☀️",title:"Summer Kickoff",       xp:200,desc:"Read 2 books to kick off summer",                      check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2026-07",icon:"🏕️",title:"Adventure Seeker",    xp:175,desc:"Read a thriller or adventure book",                    check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/thriller|adventure/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/thriller|adventure/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2026-08",icon:"🎒",title:"Back to Basics",       xp:175,desc:"Read a non-fiction book",                              check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/non.?fiction|nonfiction/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/non.?fiction|nonfiction/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2026-09",icon:"🍂",title:"Fall Into Reading",    xp:200,desc:"Read 2 books as autumn begins",                        check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2026-10",icon:"🎃",title:"Spooky Season",        xp:175,desc:"Read a horror or mystery book",                        check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/horror|mystery/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/horror|mystery/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2026-11",icon:"🦃",title:"November Surge",       xp:350,desc:"Read 3 books in November",                             check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
-{ym:"2026-12",icon:"🎄",title:"Gift List",            xp:150,desc:"Add 10 books to your wishlist",                        check:(b,y,m)=>booksAddedInMonth(b,y,m).filter(x=>x.status==="wishlist").length>=10,prog:(b,y,m)=>({n:Math.min(booksAddedInMonth(b,y,m).filter(x=>x.status==="wishlist").length,10),max:10})},
-// ── 2027 ──────────────────────────────────────────────────────────────────────
-{ym:"2027-01",icon:"🎉",title:"Fresh Start",          xp:200,desc:"Read 2 books to kick off the new year",                check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2027-02",icon:"💕",title:"Matters of the Heart", xp:175,desc:"Read a romance or love story",                         check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/romance/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/romance/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2027-03",icon:"🌱",title:"The Long Game",        xp:225,desc:"Read a book over 400 pages",                           check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=400),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=400)?1:0,max:1})},
-{ym:"2027-04",icon:"🌷",title:"Classic April",        xp:200,desc:"Read a book published before 1980",                    check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.year||9999)<1980),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.year||9999)<1980)?1:0,max:1})},
-{ym:"2027-05",icon:"🌻",title:"Note to Self",         xp:150,desc:"Add notes to a book you read this month",              check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.notes?.trim().length>0),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>x.notes?.trim().length>0)?1:0,max:1})},
-{ym:"2027-06",icon:"🏖️",title:"Beach Read",           xp:150,desc:"Read a short book (under 200 pages)",                 check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>0&&parseInt(x.pages||0)<200),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>0&&parseInt(x.pages||0)<200)?1:0,max:1})},
-{ym:"2027-07",icon:"🚀",title:"Blast Off",            xp:175,desc:"Read a science fiction book",                          check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2027-08",icon:"📰",title:"True Stories",         xp:250,desc:"Read 2 non-fiction books",                             check:(b,y,m)=>booksReadInMonth(b,y,m).filter(x=>/non.?fiction|nonfiction/i.test(x.genre||"")).length>=2,prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/non.?fiction|nonfiction/i.test(x.genre||"")).length,2),max:2})},
-{ym:"2027-09",icon:"📝",title:"Annotator Month",      xp:175,desc:"Add notes to any 3 books in your library",             check:(b,y,m)=>b.filter(x=>x.notes?.trim().length>0).length>=3,prog:(b,y,m)=>({n:Math.min(b.filter(x=>x.notes?.trim().length>0).length,3),max:3})},
-{ym:"2027-10",icon:"🕸️",title:"Dark & Twisty",        xp:175,desc:"Read a thriller or horror book",                      check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/thriller|horror/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/thriller|horror/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2027-11",icon:"📚",title:"November Push",        xp:350,desc:"Read 3 books in November",                             check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
-{ym:"2027-12",icon:"🎁",title:"Season of Giving",     xp:175,desc:"Finish a book and give it a 5-star rating",            check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.rating===5),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>x.rating===5)?1:0,max:1})},
-// ── 2028 ──────────────────────────────────────────────────────────────────────
-{ym:"2028-01",icon:"📅",title:"New Year New Book",    xp:200,desc:"Read 2 books to start the year strong",                check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2028-02",icon:"💌",title:"Love Letter to Books", xp:150,desc:"Rate 5 books in your library",                         check:(b,y,m)=>b.filter(x=>x.rating>0).length>=5,   prog:(b,y,m)=>({n:Math.min(b.filter(x=>x.rating>0).length,5),max:5})},
-{ym:"2028-03",icon:"☘️",title:"Lucky Reader",         xp:175,desc:"Read a fantasy book",                                  check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/fantasy/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/fantasy/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2028-04",icon:"🐣",title:"Epic Undertaking",     xp:250,desc:"Read a book over 500 pages",                           check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=500),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=500)?1:0,max:1})},
-{ym:"2028-05",icon:"🌺",title:"Progress Tracker",     xp:175,desc:"Log reading progress 5 times this month",              check:(b,y,m)=>progressLogsInMonth(b,y,m).length>=5,prog:(b,y,m)=>({n:Math.min(progressLogsInMonth(b,y,m).length,5),max:5})},
-{ym:"2028-06",icon:"🌊",title:"Deep Summer Dive",     xp:200,desc:"Read 2 books this June",                               check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2028-07",icon:"🏄",title:"Summer of Mystery",    xp:175,desc:"Read a mystery book",                                  check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/mystery/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/mystery/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2028-08",icon:"🌅",title:"Dog Days Finisher",    xp:200,desc:"Read 2 books before September",                        check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2028-09",icon:"🍎",title:"Knowledge Seeker",     xp:175,desc:"Read a biography or memoir",                           check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/biograph|memoir/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/biograph|memoir/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2028-10",icon:"🦇",title:"Fright Fest",          xp:175,desc:"Read a horror book",                                   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/horror/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/horror/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2028-11",icon:"🌩️",title:"Blitz Reader",         xp:450,desc:"Read 4 books in November",                             check:(b,y,m)=>booksReadInMonth(b,y,m).length>=4,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,4),max:4})},
-{ym:"2028-12",icon:"❄️",title:"Winter Warmup",        xp:200,desc:"Finish a book over 300 pages",                         check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=300),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=300)?1:0,max:1})},
-// ── 2029 ──────────────────────────────────────────────────────────────────────
-{ym:"2029-01",icon:"🌠",title:"Galaxy Brain",         xp:175,desc:"Read a science fiction book",                          check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2029-02",icon:"🌹",title:"Read Two",             xp:200,desc:"Read any 2 books this month",                          check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2029-03",icon:"🌦️",title:"Page Turner",          xp:175,desc:"Log reading progress 5 times",                        check:(b,y,m)=>progressLogsInMonth(b,y,m).length>=5,prog:(b,y,m)=>({n:Math.min(progressLogsInMonth(b,y,m).length,5),max:5})},
-{ym:"2029-04",icon:"🌸",title:"Historical Journey",   xp:175,desc:"Read a historical fiction book",                       check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/histor/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/histor/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2029-05",icon:"🦋",title:"Metamorphosis",        xp:150,desc:"Read any book this month",                              check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
-{ym:"2029-06",icon:"🌍",title:"World Traveler",       xp:125,desc:"Add 5 books to your wishlist",                         check:(b,y,m)=>booksAddedInMonth(b,y,m).filter(x=>x.status==="wishlist").length>=5,prog:(b,y,m)=>({n:Math.min(booksAddedInMonth(b,y,m).filter(x=>x.status==="wishlist").length,5),max:5})},
-{ym:"2029-07",icon:"🎆",title:"Summer Epic",          xp:250,desc:"Read a book over 500 pages",                           check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=500),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=500)?1:0,max:1})},
-{ym:"2029-08",icon:"🏋️",title:"Endurance Reader",    xp:350,desc:"Read 3 books before September",                        check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
-{ym:"2029-09",icon:"🍁",title:"Autumn Classic",       xp:200,desc:"Read a classic (published before 1970)",               check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.year||9999)<1970),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.year||9999)<1970)?1:0,max:1})},
-{ym:"2029-10",icon:"🕯️",title:"Mystery Month",        xp:250,desc:"Read 2 mystery or thriller books",                    check:(b,y,m)=>booksReadInMonth(b,y,m).filter(x=>/mystery|thriller/i.test(x.genre||"")).length>=2,prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/mystery|thriller/i.test(x.genre||"")).length,2),max:2})},
-{ym:"2029-11",icon:"🍂",title:"Pre-Winter Push",      xp:350,desc:"Read 3 books in November",                             check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
-{ym:"2029-12",icon:"🎆",title:"Year's Best",          xp:150,desc:"Finish a book and rate it 5 stars",                    check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.rating===5),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>x.rating===5)?1:0,max:1})},
-// ── 2030 ──────────────────────────────────────────────────────────────────────
-{ym:"2030-01",icon:"🔭",title:"Horizons Ahead",       xp:200,desc:"Read any 2 books this January",                        check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2030-02",icon:"💞",title:"Kindred Spirits",      xp:175,desc:"Read a romance or friendship story",                   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/romance/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/romance/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2030-03",icon:"🪄",title:"Fantasy Quest",        xp:175,desc:"Read a fantasy book",                                  check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/fantasy/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/fantasy/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2030-04",icon:"📖",title:"Annotated April",      xp:200,desc:"Add notes to a book you read this month",              check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.notes?.trim().length>0),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>x.notes?.trim().length>0)?1:0,max:1})},
-{ym:"2030-05",icon:"🌿",title:"Truth in Pages",       xp:175,desc:"Read a non-fiction book",                              check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/non.?fiction|nonfiction/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/non.?fiction|nonfiction/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2030-06",icon:"🐚",title:"Library Builder",      xp:175,desc:"Add 5 new books to your library",                      check:(b,y,m)=>booksAddedInMonth(b,y,m).length>=5,  prog:(b,y,m)=>({n:Math.min(booksAddedInMonth(b,y,m).length,5),max:5})},
-{ym:"2030-07",icon:"🎇",title:"Adventure Time",       xp:175,desc:"Read a thriller or adventure book",                    check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/thriller|adventure/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/thriller|adventure/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2030-08",icon:"📡",title:"Broadband Reader",     xp:350,desc:"Read 3 books in August",                               check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
-{ym:"2030-09",icon:"🌾",title:"Harvest Season",       xp:200,desc:"Finish any 2 books this month",                        check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2030-10",icon:"🕷️",title:"October Shadows",      xp:175,desc:"Read a mystery or horror book",                       check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/mystery|horror/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/mystery|horror/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2030-11",icon:"🦅",title:"The Big Read",         xp:450,desc:"Read 4 books in November",                             check:(b,y,m)=>booksReadInMonth(b,y,m).length>=4,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,4),max:4})},
-{ym:"2030-12",icon:"🌟",title:"Decade Closer",        xp:250,desc:"Read an epic (600+ pages)",                            check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=600),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=600)?1:0,max:1})},
-// ── 2031 ──────────────────────────────────────────────────────────────────────
-{ym:"2031-01",icon:"🎊",title:"New Decade Debut",     xp:200,desc:"Read 2 books to start the new year",                  check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
-{ym:"2031-02",icon:"❤️",title:"Story Hearts",         xp:175,desc:"Read a romance book",                                  check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/romance/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/romance/i.test(x.genre||""))?1:0,max:1})},
-{ym:"2031-03",icon:"🌈",title:"Genre Rainbow",        xp:200,desc:"Read any book this month",                              check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
-{ym:"2031-04",icon:"🌍",title:"World in Words",       xp:200,desc:"Read a biography or history book",                     check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/biograph|memoir|histor/i.test(x.genre||"")),prog:(b,y,m)=>({n:booksReadInMonth(b,y,m).some(x=>/biograph|memoir|histor/i.test(x.genre||""))?1:0,max:1})},
+// 60 monthly challenges: May 2026 – Apr 2031
+const MONTHLY_CHALLENGES=[
+  // 2026
+  {ym:"2026-05",icon:"🌸",title:"Spring Awakening",xp:150,desc:"Read any 1 book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
+  {ym:"2026-06",icon:"🚀",title:"Genre Jump",xp:175,desc:"Read a sci-fi or fantasy book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction|fantasy/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/sci.?fi|science.?fiction|fantasy/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2026-07",icon:"☀️",title:"Mid-Summer Push",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2026-08",icon:"🏖️",title:"Dog Days Reader",xp:225,desc:"Read a book with 300+ pages this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=300),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>parseInt(x.pages||0)>=300).length,1),max:1})},
+  {ym:"2026-09",icon:"📚",title:"Back to Bookshelf",xp:150,desc:"Add 3 books to your library this month",
+   check:(b,y,m)=>booksAddedInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksAddedInMonth(b,y,m).length,3),max:3})},
+  {ym:"2026-10",icon:"🔍",title:"Spooky Reads",xp:175,desc:"Read a mystery or thriller this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/mystery|thriller/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/mystery|thriller/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2026-11",icon:"🍂",title:"Fall into Reading",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2026-12",icon:"❄️",title:"Winter Stories",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  // 2027
+  {ym:"2027-01",icon:"🎉",title:"New Year, New Book",xp:150,desc:"Read any 1 book to kick off the year",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
+  {ym:"2027-02",icon:"💖",title:"Love & Literature",xp:175,desc:"Read a romance or literary fiction book",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/romance|literary/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/romance|literary/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2027-03",icon:"🌱",title:"Spring Reader",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2027-04",icon:"📰",title:"Truth Seeker",xp:200,desc:"Read a non-fiction book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/non.?fiction|nonfiction/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/non.?fiction|nonfiction/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2027-05",icon:"🌻",title:"May Bloom",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2027-06",icon:"🎧",title:"Listen Up",xp:175,desc:"Finish an audiobook this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.bookFormat==="audiobook"),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>x.bookFormat==="audiobook").length,1),max:1})},
+  {ym:"2027-07",icon:"🔥",title:"Halfway Hero",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2027-08",icon:"📖",title:"Epic Summer",xp:250,desc:"Read a book with 400+ pages this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=400),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>parseInt(x.pages||0)>=400).length,1),max:1})},
+  {ym:"2027-09",icon:"🍁",title:"Autumn Opener",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2027-10",icon:"🕵️",title:"Mystery Month",xp:175,desc:"Read a mystery book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/mystery/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/mystery/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2027-11",icon:"🦃",title:"Pre-Winter Push",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2027-12",icon:"🎄",title:"Cozy Season",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  // 2028
+  {ym:"2028-01",icon:"🌨️",title:"Winter Warmth",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2028-02",icon:"⚡",title:"Quick Read",xp:175,desc:"Read a short book (under 200 pages) this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>{const p=parseInt(x.pages||0);return p>0&&p<200;}),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>{const p=parseInt(x.pages||0);return p>0&&p<200;}).length,1),max:1})},
+  {ym:"2028-03",icon:"🌷",title:"Spring Clean",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2028-04",icon:"🏺",title:"History Lesson",xp:200,desc:"Read a history or historical fiction book",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/histor/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/histor/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2028-05",icon:"🧙",title:"Fantasy Quest",xp:175,desc:"Read a fantasy book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/fantasy/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/fantasy/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2028-06",icon:"🎧",title:"Audiobook June",xp:175,desc:"Finish an audiobook this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.bookFormat==="audiobook"),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>x.bookFormat==="audiobook").length,1),max:1})},
+  {ym:"2028-07",icon:"☀️",title:"Summer Challenge",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2028-08",icon:"🏆",title:"Power Reader",xp:350,desc:"Read 4 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=4,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,4),max:4})},
+  {ym:"2028-09",icon:"🍂",title:"Harvest Reads",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2028-10",icon:"🚀",title:"Sci-Fi October",xp:175,desc:"Read a sci-fi book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/sci.?fi|science.?fiction/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2028-11",icon:"📚",title:"Pre-Holiday Rush",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2028-12",icon:"🎁",title:"Year-End Sprint",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  // 2029
+  {ym:"2029-01",icon:"🎉",title:"Resolution Reader",xp:150,desc:"Read 1 book to start the new year",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
+  {ym:"2029-02",icon:"❄️",title:"Cozy February",xp:150,desc:"Read any 1 book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
+  {ym:"2029-03",icon:"🌱",title:"Library Builder",xp:175,desc:"Add 5 books to your library this month",
+   check:(b,y,m)=>booksAddedInMonth(b,y,m).length>=5,
+   prog:(b,y,m)=>({n:Math.min(booksAddedInMonth(b,y,m).length,5),max:5})},
+  {ym:"2029-04",icon:"🧙",title:"Spring Fantasy",xp:175,desc:"Read a fantasy book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/fantasy/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/fantasy/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2029-05",icon:"🌸",title:"May Reading Month",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2029-06",icon:"📰",title:"Non-Fiction June",xp:200,desc:"Read a non-fiction book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/non.?fiction|nonfiction/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/non.?fiction|nonfiction/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2029-07",icon:"🌊",title:"Summer Explorer",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2029-08",icon:"📖",title:"Long Read Month",xp:225,desc:"Read a book with 350+ pages this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>parseInt(x.pages||0)>=350),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>parseInt(x.pages||0)>=350).length,1),max:1})},
+  {ym:"2029-09",icon:"⚡",title:"Thriller September",xp:175,desc:"Read a thriller book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/thriller/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/thriller/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2029-10",icon:"🍁",title:"Cozy October",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2029-11",icon:"🍂",title:"Fall Sprint",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2029-12",icon:"🎄",title:"Winter Wrap-Up",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  // 2030
+  {ym:"2030-01",icon:"✨",title:"New Decade Dreams",xp:150,desc:"Read 1 book to start the new year",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
+  {ym:"2030-02",icon:"📱",title:"Digital Reader",xp:175,desc:"Finish an ebook this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.bookFormat==="ebook"),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>x.bookFormat==="ebook").length,1),max:1})},
+  {ym:"2030-03",icon:"🌷",title:"Spring Forward",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2030-04",icon:"🔍",title:"Mystery April",xp:175,desc:"Read a mystery book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/mystery/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/mystery/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2030-05",icon:"🌻",title:"May Blossom",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2030-06",icon:"🌊",title:"Midsummer Read",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2030-07",icon:"🎧",title:"Audiobook July",xp:175,desc:"Finish an audiobook this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>x.bookFormat==="audiobook"),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>x.bookFormat==="audiobook").length,1),max:1})},
+  {ym:"2030-08",icon:"🚀",title:"Sci-Fi Summer",xp:200,desc:"Read a sci-fi book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/sci.?fi|science.?fiction/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/sci.?fi|science.?fiction/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2030-09",icon:"🍁",title:"Autumn Challenge",xp:250,desc:"Read 3 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
+  {ym:"2030-10",icon:"🏺",title:"Historical October",xp:200,desc:"Read a history or historical fiction book",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).some(x=>/histor/i.test(x.genre||"")),
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).filter(x=>/histor/i.test(x.genre||"")).length,1),max:1})},
+  {ym:"2030-11",icon:"📚",title:"Pre-Holiday Books",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2030-12",icon:"❄️",title:"Year-End Reflection",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  // 2031
+  {ym:"2031-01",icon:"🎉",title:"New Year Push",xp:200,desc:"Read 2 books to kick off the year",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2031-02",icon:"💖",title:"Winter Warmth",xp:150,desc:"Read any 1 book this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=1,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,1),max:1})},
+  {ym:"2031-03",icon:"🌱",title:"Spring Finale",xp:200,desc:"Read 2 books this month",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=2,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,2),max:2})},
+  {ym:"2031-04",icon:"🏆",title:"Grand Finale",xp:300,desc:"Read 3 books to complete the 5-year journey",
+   check:(b,y,m)=>booksReadInMonth(b,y,m).length>=3,
+   prog:(b,y,m)=>({n:Math.min(booksReadInMonth(b,y,m).length,3),max:3})},
 ];
 
 function calcXP(books, goal, earned=[], completedChallenges=[]) {
@@ -486,7 +620,8 @@ function calcXP(books, goal, earned=[], completedChallenges=[]) {
   })();
   // XP from earned achievements
   const achievementXP = ACHIEVEMENTS.filter(a=>earned.includes(a.id)).reduce((s,a)=>s+a.xp,0);
-  const challengeXP = completedChallenges.reduce((s,ym)=>{const ch=MONTHLY_CHALLENGES.find(c=>c.ym===ym);return s+(ch?.xp||0);},0);
+  // XP from completed monthly challenges
+  const challengeXP = completedChallenges.reduce((s,ym)=>{const ch=MONTHLY_CHALLENGES.find(c=>c.ym===ym);return s+(ch?ch.xp:0);},0);
   return baseXP + ratingXP + noteXP + highlightXP + formatComboXP + achievementXP + challengeXP;
 }
 
@@ -1389,7 +1524,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="28";
+const APP_VERSION="29";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -1930,57 +2065,69 @@ function AchievementToast({achievement, onDismiss}) {
   );
 }
 
-// ─── Monthly Challenge Component ──────────────────────────────────────────────
-function MonthlyChallenge({books, completedChallenges}) {
-  const now=new Date(),y=now.getFullYear(),m=now.getMonth()+1;
-  const ym=`${y}-${String(m).padStart(2,'0')}`;
-  const cur=MONTHLY_CHALLENGES.find(c=>c.ym===ym);
-  const isDone=completedChallenges.includes(ym);
-  const MNAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const ymLabel=s=>{const[yr,mn]=s.split('-');return`${MNAMES[parseInt(mn)-1]} ${yr}`;};
-  const past=MONTHLY_CHALLENGES.filter(c=>c.ym<ym).slice(-3);
-  const next=MONTHLY_CHALLENGES.find(c=>c.ym>ym);
-  if(!cur)return null;
-  const pr=cur.prog(books,y,m);
-  const pct=pr.max>0?Math.min(100,Math.round(pr.n/pr.max*100)):0;
-  return <div style={{marginBottom:24}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:800,color:P.text,textTransform:"uppercase",letterSpacing:.8}}>🗓 Monthly Challenge</div>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>{completedChallenges.length} completed</div>
-    </div>
-    {/* Current month card */}
-    <div style={{background:isDone?"rgba(52,211,153,.1)":P.bgCard,border:`2px solid ${isDone?"#34d399":P.borderAccent}`,borderRadius:18,padding:"18px 16px",marginBottom:10,boxShadow:isDone?"0 0 24px rgba(52,211,153,.15)":"0 4px 20px rgba(0,0,0,.35)"}}>
-      <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12}}>
-        <span style={{fontSize:36,lineHeight:1,flexShrink:0}}>{cur.icon}</span>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:10,fontWeight:700,color:isDone?"#34d399":P.accent,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>
-            {ymLabel(ym)} · +{cur.xp} XP{isDone?" · Completed! ✅":""}
+// ─── Monthly Challenge Card ───────────────────────────────────────────────────
+function MonthlyChallenge({books, completedChallenges=[]}) {
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth()+1;
+  const ym = y+"-"+String(m).padStart(2,"0");
+  const cur = MONTHLY_CHALLENGES.find(c=>c.ym===ym);
+  if(!cur) return null;
+  const isDone = completedChallenges.includes(ym);
+  const MNAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const ymLabel = s=>{const parts=s.split("-");return MNAMES[parseInt(parts[1])-1]+" "+parts[0];};
+  const past = MONTHLY_CHALLENGES.filter(c=>c.ym<ym).slice(-3);
+  const next = MONTHLY_CHALLENGES.find(c=>c.ym>ym);
+  let pr, pct;
+  try { pr = cur.prog(books,y,m); pct = pr.max>0?Math.min(100,Math.round(pr.n/pr.max*100)):0; }
+  catch(e) { pr = {n:0,max:1}; pct = 0; }
+  return (
+    <div style={{margin:"0 20px 18px"}}>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:10,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Monthly Challenge</div>
+      <div style={{background:isDone?"rgba(34,197,94,.08)":P.bgCard,borderRadius:16,padding:"16px",border:`1.5px solid ${isDone?"rgba(34,197,94,.4)":P.border}`,boxShadow:"0 4px 20px rgba(0,0,0,.3)",transition:"all .3s"}}>
+        <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
+          <div style={{fontSize:32,flexShrink:0,lineHeight:1}}>{cur.icon}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:2}}>
+              <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:700,color:P.text,lineHeight:1.2}}>{cur.title}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.gold,fontWeight:800,flexShrink:0,marginLeft:8}}>+{cur.xp} XP</div>
+            </div>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,marginBottom:8}}>{cur.desc}</div>
+            {isDone
+              ? <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:14}}>✅</span>
+                  <span style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:"#22c55e",fontWeight:800}}>Challenge complete!</span>
+                </div>
+              : <div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{fontFamily:"'Nunito',sans-serif",fontSize:10,color:P.muted,fontWeight:700}}>{pr.n} / {pr.max}</span>
+                    <span style={{fontFamily:"'Nunito',sans-serif",fontSize:10,color:P.accent,fontWeight:700}}>{pct}%</span>
+                  </div>
+                  <div style={{background:"rgba(128,128,160,.12)",borderRadius:4,height:6,overflow:"hidden"}}>
+                    <div style={{width:pct+"%",height:"100%",background:"linear-gradient(90deg,"+P.accentLt+","+P.accent+")",borderRadius:4,transition:"width .6s ease"}}/>
+                  </div>
+                </div>
+            }
           </div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:900,color:P.text,lineHeight:1.25,marginBottom:5}}>{cur.title}</div>
-          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.textLt,lineHeight:1.5}}>{cur.desc}</div>
         </div>
       </div>
-      <div style={{background:"rgba(128,128,160,.12)",borderRadius:8,height:8,overflow:"hidden"}}>
-        <div style={{width:`${pct}%`,height:"100%",background:isDone?"#34d399":`linear-gradient(90deg,${P.accent},${P.accentDk})`,borderRadius:8,transition:"width .5s ease"}}/>
-      </div>
-      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:isDone?"#34d399":P.muted,marginTop:5,textAlign:"right",fontWeight:700}}>
-        {isDone?"Challenge complete — XP awarded!":`${pr.n} / ${pr.max}`}
-      </div>
+      {(past.length>0||next)&&(
+        <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+          {past.map(c=>(
+            <div key={c.ym} style={{display:"flex",alignItems:"center",gap:4,background:completedChallenges.includes(c.ym)?"rgba(34,197,94,.1)":"rgba(128,128,160,.07)",borderRadius:8,padding:"4px 8px",border:"1px solid "+(completedChallenges.includes(c.ym)?"rgba(34,197,94,.25)":P.border)}}>
+              <span style={{fontSize:12}}>{c.icon}</span>
+              <span style={{fontFamily:"'Nunito',sans-serif",fontSize:10,color:P.muted}}>{ymLabel(c.ym)}</span>
+              {completedChallenges.includes(c.ym)&&<span style={{fontSize:10}}>✅</span>}
+            </div>
+          ))}
+          {next&&(
+            <div style={{display:"flex",alignItems:"center",gap:4,background:"rgba(128,128,160,.04)",borderRadius:8,padding:"4px 8px",border:"1px dashed "+P.border,opacity:.7}}>
+              <span style={{fontSize:12}}>{next.icon}</span>
+              <span style={{fontFamily:"'Nunito',sans-serif",fontSize:10,color:P.muted}}>{ymLabel(next.ym)} coming up</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
-    {/* Past + next row */}
-    {(past.length>0||next)&&<div style={{display:"flex",gap:8}}>
-      {past.map(c=>{const done=completedChallenges.includes(c.ym);return <div key={c.ym} style={{flex:1,background:P.bgCard,borderRadius:12,padding:"10px",border:`1px solid ${done?"#34d399":P.border}`,opacity:.8}}>
-        <div style={{fontSize:16,marginBottom:3}}>{done?"✅":"❌"} {c.icon}</div>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:9,color:P.muted,fontWeight:700,marginBottom:2}}>{ymLabel(c.ym)}</div>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:done?"#34d399":P.textLt,fontWeight:700,lineHeight:1.2}}>{c.title}</div>
-      </div>;})}
-      {next&&<div style={{flex:1,background:P.bgCard,borderRadius:12,padding:"10px",border:`1px dashed ${P.border}`,opacity:.55}}>
-        <div style={{fontSize:16,marginBottom:3}}>🔜 {next.icon}</div>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:9,color:P.muted,fontWeight:700,marginBottom:2}}>Next: {ymLabel(next.ym)}</div>
-        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.textLt,fontWeight:700,lineHeight:1.2}}>{next.title}</div>
-      </div>}
-    </div>}
-  </div>;
+  );
 }
 
 // ─── Achievements Screen ──────────────────────────────────────────────────────
@@ -2011,8 +2158,7 @@ function AchievementsScreen({books, goal, earned, completedChallenges=[]}) {
     <div style={{paddingBottom:84}}>
       <div style={{padding:"44px 20px 20px"}}>
         <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:30,color:P.text,margin:"0 0 16px",fontWeight:900}}>Achievements</h1>
-        <XPBar books={books} goal={goal} earned={earned} completedChallenges={completedChallenges}/>
-        <MonthlyChallenge books={books} completedChallenges={completedChallenges}/>
+        <XPBar books={books} goal={goal} earned={earned}/>
         {/* Summary row */}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:4}}>
           {[
@@ -2704,8 +2850,8 @@ function App({ user }) {
 
   // Gamification
   const [earnedAchs,setEarnedAchs] = useState(()=>load("achievements",[]));
-  const [completedChallenges,setCompletedChallenges] = useState(()=>load("completedChallenges",[]));
   const [achToast,setAchToast]     = useState(null); // achievement being shown
+  const [completedChallenges,setCompletedChallenges] = useState(()=>load("completedChallenges",[]));
 
   const booksMounted = useRef(false);
   useEffect(()=>{
@@ -2766,6 +2912,20 @@ function App({ user }) {
   useEffect(()=>{ save("completedChallenges",completedChallenges); },[completedChallenges]);
   useEffect(()=>{ save("savedViews",savedViews); },[savedViews]);
 
+  // Check monthly challenge whenever books change
+  useEffect(()=>{
+    const now=new Date(),y=now.getFullYear(),m=now.getMonth()+1;
+    const ym=y+"-"+String(m).padStart(2,"0");
+    const ch=MONTHLY_CHALLENGES.find(c=>c.ym===ym);
+    if(!ch||completedChallenges.includes(ym))return;
+    try{
+      if(ch.check(books,y,m)){
+        setCompletedChallenges(prev=>[...prev,ym]);
+        showToast("🎯 Monthly Challenge complete! +"+ch.xp+" XP");
+      }
+    }catch(e){console.warn("challenge check error:",e);}
+  },[books]);
+
   // Check achievements whenever books or goal changes
   useEffect(()=>{
     const newOnes = checkNewAchievements(books, readingGoal, earnedAchs);
@@ -2777,16 +2937,6 @@ function App({ user }) {
       });
     }
   },[books, readingGoal]);
-
-  // Check current monthly challenge
-  useEffect(()=>{
-    const now=new Date(),y=now.getFullYear(),m=now.getMonth()+1;
-    const ym=`${y}-${String(m).padStart(2,'0')}`;
-    const ch=MONTHLY_CHALLENGES.find(c=>c.ym===ym);
-    if(!ch||completedChallenges.includes(ym))return;
-    try{if(ch.check(books,y,m)){setCompletedChallenges(prev=>[...prev,ym]);showToast(`🎯 Monthly Challenge complete! +${ch.xp} XP`);}}
-    catch(e){console.warn("challenge check error:",e);}
-  },[books]);
 
   function toggleTheme() { setIsDark(d=>!d); }
 
@@ -2881,7 +3031,7 @@ function App({ user }) {
     if (data.books)        setBooks(data.books);
     if (data.shelves)      setCustomShelves(data.shelves);
     if (data.goal)         setReadingGoal(data.goal);
-    if (data.earnedAchs)   setEarnedAchs(data.earnedAchs);
+    if (data.earnedAchs)        setEarnedAchs(data.earnedAchs);
     if (data.completedChallenges) setCompletedChallenges(data.completedChallenges);
   }
   function saveView(){setShowSavedViews(true);}
@@ -2978,6 +3128,9 @@ function App({ user }) {
             {[{l:"Total",v:stats.total,c:P.accent},{l:"Read",v:stats.read,c:SC.read},{l:"Reading",v:stats.reading,c:SC.reading},{l:"Wishlist",v:stats.wishlist,c:SC.wishlist}].map(({l,v,c})=><div key={l} style={{background:P.bgCard,borderRadius:12,padding:"10px 8px",textAlign:"center",border:`1px solid ${P.border}`,boxShadow:"0 2px 12px rgba(0,0,0,.3)"}}><div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:c}}>{v}</div><div style={{fontFamily:"'Nunito',sans-serif",fontSize:9,color:P.muted,fontWeight:700,letterSpacing:.3,textTransform:"uppercase"}}>{l}</div></div>)}
           </div>
         </div>
+
+        {/* Monthly Challenge */}
+        <MonthlyChallenge books={books} completedChallenges={completedChallenges}/>
 
         {/* Currently Reading / Listening */}
         {books.filter(b=>b.status==="reading").length>0&&<div style={{padding:"0 20px 10px"}}>
