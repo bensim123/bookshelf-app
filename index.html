@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v30';
+const CACHE='bookshelf-v31';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v30 ok');
+        console.log('SW v31 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1524,14 +1524,15 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="30";
+const APP_VERSION="31";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
   {title:"Series Detection",icon:"🔗",body:`When you add a new book, the app automatically checks if it's part of a series — you'll see a "Checking for series companions…" notice. If companion books are found, you can add them to your Wishlist in one tap. You can also trigger this anytime from the book detail screen using the 🔗 Series button.`},
   {title:"Multiple Formats",icon:"📦",body:`Own both the paperback and audiobook? The app keeps one record per title. Toggle additional formats in the Owned Formats section of the book detail. All owned formats appear as icons on the book card.`},
   {title:"AI Features",icon:"✨",body:`The Suggest tab offers two AI-powered tools:\n• Personalized Picks — 25 recommendations based on your library\n• Mood Search — describe a mood or theme and get matching books\nSuggestions never include books already in your library. Series detection also uses AI to find complete series lists.`},
-  {title:"Achievements & XP",icon:"🏆",body:`Earn 57 badges across 6 categories — finishing books, mastering genres (Sci-Fi, Fantasy, Mystery, Thriller, Non-Fiction, History), tracking progress, format achievements, and more. Each badge awards XP. Enough XP raises your reader level. Compare your badges with friends from the Friends screen.`},
+  {title:"Monthly Challenges",icon:"🎯",body:`A new challenge appears each month — read a genre book, finish an audiobook, hit a page-count goal, and more. The challenge card at the top of your library shows your live progress. Complete it before the month ends to earn bonus XP. Past completions appear as chips below the card so you can track your streak across months.`},
+  {title:"Achievements & XP",icon:"🏆",body:`Earn 60 badges across 6 categories — finishing books, mastering genres (Sci-Fi, Fantasy, Mystery, Thriller, Non-Fiction, History), tracking progress, format achievements, and more. Each badge awards XP, and so do completed Monthly Challenges. Enough XP raises your reader level. Compare your badges with friends from the Friends screen.`},
   {title:"Smart Shelves & Filters",icon:"📂",body:`Create custom shelves (e.g. "Beach Reads", "Signed Copies") from the 📂 button in the library header. Use Smart Shelves (⭐ icon) to create dynamic views that filter by title, author, genre, year, pages, rating, and status — books automatically appear or leave the shelf as your library changes. Save any filter + sort combo as a named shelf.`},
   {title:"Import & Export",icon:"📤",body:`Your library automatically syncs across devices via Firebase when you're signed in with Google. You can also export your full library to CSV from the Profile menu → Import / Export. The CSV opens in Excel or Sheets and can be imported back into Bookshelf at any time. You can also import from Goodreads or StoryGraph — step-by-step instructions are included in the Import tab.`},
 ];
