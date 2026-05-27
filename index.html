@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v36';
+const CACHE='bookshelf-v37';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v36 ok');
+        console.log('SW v37 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -214,6 +214,33 @@ firebase.initializeApp(FIREBASE_CONFIG);
 let _userDocRef = null;
 let _userCache  = null;
 const _saveTimers = {};
+let _docSizeWarnedAt = 0; // throttle size warnings to once per session
+
+// Firestore has a hard 1 MB per-document limit. Estimate the current size
+// and warn the user before they silently hit it.
+function checkDocSize(cache) {
+  try {
+    const bytes = new Blob([JSON.stringify(cache)]).size;
+    const kb = Math.round(bytes / 1024);
+    if (bytes > 800_000 && Date.now() - _docSizeWarnedAt > 3_600_000) {
+      _docSizeWarnedAt = Date.now();
+      console.warn(`Bookshelf doc size: ${kb} KB (limit ~1000 KB)`);
+      // Surface warning via a custom event the App component can catch
+      window.dispatchEvent(new CustomEvent('bs:docsize', { detail: { kb } }));
+    }
+  } catch {}
+}
+
+// Trim book descriptions before saving — they are the single biggest contributor
+// to document bloat (often 500–2000 chars each from Open Library / Google Books).
+// The full text is only ever shown in the detail view; 400 chars is plenty.
+function trimBooks(books) {
+  if (!Array.isArray(books)) return books;
+  return books.map(b => {
+    if (!b.description || b.description.length <= 400) return b;
+    return { ...b, description: b.description.slice(0, 400) + '…' };
+  });
+}
 
 const load = (k, d) => {
   if (_userCache !== null && k in _userCache) return _userCache[k];
@@ -222,13 +249,15 @@ const load = (k, d) => {
 };
 
 const save = (k, v) => {
-  if (_userCache !== null) _userCache[k] = v;
+  const toStore = k === 'books' ? trimBooks(v) : v;
+  if (_userCache !== null) _userCache[k] = toStore;
   if (k === 'theme') { try { localStorage.setItem('bs_theme', JSON.stringify(v)); } catch {} }
   if (!_userDocRef) return;
   clearTimeout(_saveTimers[k]);
   _saveTimers[k] = setTimeout(() => {
     if (!_userDocRef) return;
-    _userDocRef.set({ [k]: v }, { merge: true }).catch(e => console.error('Firestore save failed:', e));
+    if (k === 'books') checkDocSize(_userCache);
+    _userDocRef.set({ [k]: toStore }, { merge: true }).catch(e => console.error('Firestore save failed:', e));
   }, k === 'books' ? 600 : 0);
 };
 
@@ -1682,7 +1711,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.6";
+const APP_VERSION="3.7";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -3097,6 +3126,16 @@ function App({ user }) {
     }
     prevPendingRef.current=pendingRequests.length;
   },[pendingRequests]);
+
+  // Warn if the Firestore document is approaching the 1 MB limit
+  useEffect(()=>{
+    function onDocSize(e){
+      const {kb}=e.detail;
+      showToast(`⚠️ Library data is ${kb} KB — approaching Firestore's 1 MB limit. Consider exporting a backup (Settings → Export CSV).`,8000);
+    }
+    window.addEventListener('bs:docsize',onDocSize);
+    return()=>window.removeEventListener('bs:docsize',onDocSize);
+  },[]);
 
   // Check monthly challenge whenever books change
   useEffect(()=>{
