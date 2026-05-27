@@ -341,6 +341,7 @@ The app uses `https://unpkg.com/@babel/standalone/babel.min.js` **without a vers
 | v31 | v31 | Full documentation update: README, HELP_SECTIONS, BOOKSHELF_PROJECT_DOCS rewritten to v30/v31 state |
 | v32 | v32 | **App version 3.2** — wishlist button in search results, auto-save in DetailModal, BookCard context menu (right-click/long-press), fix Friends page (reads `profiles/` not `users/`), public stats sync to `profiles/{uid}`, friend request toast, safe-area fix for detail view header icons, semantic versioning (git vN → "N/10" display) |
 | v33 | v33 | **App version 3.3** — fix B&N and HPB store search URLs (B&N: `/s/` prefix, HPB: `hpb.com/search?q=`), prefer ISBN over title for all store links; replace 3 side-by-side buy buttons with single "Where to Buy" dropdown button |
+| v34 | v34 | **App version 3.4** — fix "Where to Buy" dropdown clipping (rewritten with `ReactDOM.createPortal` so it renders at body level, escaping `overflow:hidden` on BookCard); simplify HPB URL to plain `?q=` (remove extra params that broke routing); improve `FriendProfileSheet` error messages (distinguish permission-denied vs missing doc vs no stats yet, with actionable guidance) |
 
 -----
 
@@ -412,7 +413,7 @@ Current: **v32 = app version 3.2**. Format going forward: `const APP_VERSION="3.
 
 Key facts for a new session:
 - All features are in the single `index.html` — no build step
-- Current version: v33 (app version 3.3), SW `bookshelf-v33`
+- Current version: v34 (app version 3.4), SW `bookshelf-v34`
 - React hooks must be destructured: `const { useState, useEffect, useMemo, useCallback, useRef } = React;`
 - Firebase compat SDK (not modular) — use `firebase.auth()`, `firebase.firestore()` etc.
 - `_userCache` / `_userDocRef` are module-level vars set by `Root` on sign-in
