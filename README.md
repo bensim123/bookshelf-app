@@ -8,16 +8,18 @@ A personal book library tracker that runs as a web app — no app store, no inst
 
 ## Features
 
-- **Add books** via barcode scan (camera) or title/author/ISBN search
+- **Add books** via barcode scan (camera) or title/author/ISBN search — search results show two buttons: **+** to add to Library, **💜** to add to Wishlist
 - **Track status** — Owned, Reading, Read, DNF, Wishlist
 - **Reading progress** — page numbers for physical/ebook, minutes for audiobooks
+- **Auto-saving detail view** — changes to any field save automatically; no Save button required
+- **Context menu** — right-click or long-press any book card for quick actions: Open, change status, add to shelf, find series, share, delete
 - **Multi-format per title** — own a book in multiple formats (physical, ebook, audiobook) on one record
 - **Format tracking** — Physical (paperback/hardcover/mass market), E-Book, Audiobook
 - **Notes & highlights** — personal annotations per book
 - **Loan tracker** — who has your book and since when
 - **Custom shelves** — organize beyond status (e.g. "Beach Reads", "Gift Ideas")
 - **Smart Shelves** — dynamic shelves that auto-update as your library changes; filter by title, author, genre, year, pages, rating, and status with =, ≥, ≤ operators; save any combo as a named shelf
-- **Series detection** — automatically checks for companion books when you add a title; shows a "Checking for series companions…" notice while running; re-trigger anytime from the book detail screen
+- **Series detection** — automatically checks for companion books when you add a title; re-trigger anytime from the book detail screen
 - **Stats screen** — books by status/format, reading streak, pages read, hours listened
 - **Achievements** — 60 badges across 6 categories with XP and level system
   - Reading milestones, genre mastery (Sci-Fi, Fantasy, Mystery, Thriller, Non-Fiction, History), format achievements, depth tracking, and more
@@ -29,7 +31,7 @@ A personal book library tracker that runs as a web app — no app store, no inst
 - **Works offline** after first load (service worker caching)
 - **Multi-device sync** via Firebase Firestore — your library follows you everywhere
 - **Google Sign-In** — one tap login, no password
-- **Friends** — add friends by email, view their library stats and achievements
+- **Friends** — add friends by email, view their library stats and achievements; in-app toast when a new friend request arrives
 
 ---
 

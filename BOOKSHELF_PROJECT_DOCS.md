@@ -338,10 +338,27 @@ The app uses `https://unpkg.com/@babel/standalone/babel.min.js` **without a vers
 | v28 | v28 | *Broken* — monthly challenges implementation had Babel syntax error |
 | v29 | v29 | Monthly challenges (60-month calendar May 2026–Apr 2031), reverted v28 and re-implemented cleanly |
 | v30 | v30 | Fix Babel parse error: removed `\`` inside `${}` expressions in WishlistExport and SuggestScreen |
+| v31 | v31 | Full documentation update: README, HELP_SECTIONS, BOOKSHELF_PROJECT_DOCS rewritten to v30/v31 state |
+| v32 | v32 | **App version 3.2** — wishlist button in search results, auto-save in DetailModal, BookCard context menu (right-click/long-press), fix Friends page (reads `profiles/` not `users/`), public stats sync to `profiles/{uid}`, friend request toast, safe-area fix for detail view header icons, semantic versioning (git vN → "N/10" display) |
+| v33 | v33 | **App version 3.3** — fix B&N and HPB store search URLs (B&N: `/s/` prefix, HPB: `hpb.com/search?q=`), prefer ISBN over title for all store links; replace 3 side-by-side buy buttons with single "Where to Buy" dropdown button |
 
 -----
 
-## 10. Known Issues & Limitations
+## 10. Versioning Scheme
+
+App version numbers display in the UI (Settings, About screen). Starting with v32:
+
+| Git tag | App displays | When to bump |
+|---------|-------------|--------------|
+| vX where X % 10 == 0 | X.0 | Major platform change (new auth, backend rewrite, full UI overhaul) |
+| vX (feature session) | X/10 rounded to 1 decimal | New user-facing feature set per session = minor bump |
+| vX (bug fix only) | previous + .Z patch | Bug fixes, docs only = patch bump (e.g. "3.2.1") |
+
+Current: **v32 = app version 3.2**. Format going forward: `const APP_VERSION="3.2"` in `index.html`.
+
+-----
+
+## 11. Known Issues & Limitations
 
 | Issue | Status | Notes |
 |-------|--------|-------|
@@ -350,18 +367,20 @@ The app uses `https://unpkg.com/@babel/standalone/babel.min.js` **without a vers
 | OL cover placeholder images | Minor | OL returns 1×1px for missing covers — cover picker's `useCoverValid` filters these |
 | Audiobook total time | UX | User must manually enter total minutes — not auto-fetched |
 | Series detection accuracy | Minor | Works well for `(Series, #N)` titles; less reliable for unnumbered series |
+| Firestore 1MB limit | Scalability risk | All books in one `users/{uid}` document; ~500–1,000 books before hitting limit. Subcollection migration (`users/{uid}/books/{bookId}`) would fix this for heavy users. |
 
 -----
 
-## 11. Remaining Backlog
+## 12. Remaining Backlog
 
 ### High Priority
 - [ ] **Pin Babel CDN version** — lock to a known-good version to prevent future CDN updates breaking the app
+- [ ] **Firestore subcollection migration** — migrate `books` array from `users/{uid}` to `users/{uid}/books/{bookId}` for scalability
 - [ ] **Audiobook total time auto-fetch** — estimate from AI or Audible metadata
 
 ### Nice to Have
 - [ ] **Bulk edit** — select multiple books, change status/shelf/format in one action
-- [ ] **Push notifications** — reading reminders (web push via Firebase Cloud Messaging)
+- [ ] **Push notifications** — reading reminders + friend request alerts (web push via Firebase Cloud Messaging)
 - [ ] **Duplicate detection improvement** — fuzzy title matching for slight variations
 
 ### Future / Native Path
@@ -393,7 +412,7 @@ The app uses `https://unpkg.com/@babel/standalone/babel.min.js` **without a vers
 
 Key facts for a new session:
 - All features are in the single `index.html` — no build step
-- Current version: v30, SW `bookshelf-v30`
+- Current version: v33 (app version 3.3), SW `bookshelf-v33`
 - React hooks must be destructured: `const { useState, useEffect, useMemo, useCallback, useRef } = React;`
 - Firebase compat SDK (not modular) — use `firebase.auth()`, `firebase.firestore()` etc.
 - `_userCache` / `_userDocRef` are module-level vars set by `Root` on sign-in
