@@ -15,6 +15,25 @@ const ALLOWED_ORIGINS = new Set([
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
+// Simple in-memory rate limit: 1 AI request per IP per 30 seconds.
+// Resets whenever the Worker cold-starts (fine for our scale).
+const rateLimitMap = new Map();
+const RATE_WINDOW_MS = 30_000;
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  const last = rateLimitMap.get(ip) || 0;
+  if (now - last < RATE_WINDOW_MS) return true;
+  rateLimitMap.set(ip, now);
+  // Prune old entries so the map doesn't grow unbounded
+  if (rateLimitMap.size > 500) {
+    for (const [k, v] of rateLimitMap) {
+      if (now - v > RATE_WINDOW_MS * 2) rateLimitMap.delete(k);
+    }
+  }
+  return false;
+}
+
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.has(origin) ? origin : "https://bensim123.github.io";
   return {
@@ -35,6 +54,15 @@ export default {
 
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
+    }
+
+    // Rate limit by IP
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    if (isRateLimited(ip)) {
+      return new Response(
+        JSON.stringify({ error: { message: "Too many requests — please wait a moment before trying again." } }),
+        { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders(origin) } }
+      );
     }
 
     try {

@@ -123,9 +123,12 @@ service cloud.firestore {
     }
 
     // Email → UID index — used for adding friends by email address
+    // Write is allowed only when the UID being stored matches the signed-in user,
+    // preventing anyone from overwriting another user's email mapping.
     match /emailToUid/{emailKey} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.data.uid == request.auth.uid;
     }
 
     // Friend requests
