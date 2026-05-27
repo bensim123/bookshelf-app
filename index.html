@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v35';
+const CACHE='bookshelf-v36';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v35 ok');
+        console.log('SW v36 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1053,6 +1053,7 @@ function BuyButtons({book,compact=false}) {
   const [open,setOpen]=useState(false);
   const [menuPos,setMenuPos]=useState(null);
   const btnRef=useRef(null);
+  const dropdownRef=useRef(null);
   const links=pLinks(book),price=book.price;
 
   function toggle(e) {
@@ -1061,9 +1062,7 @@ function BuyButtons({book,compact=false}) {
     if(btnRef.current){
       const r=btnRef.current.getBoundingClientRect();
       const spaceBelow=window.innerHeight-r.bottom;
-      // Dropdown is ~180px tall; prefer below, flip above if cramped
       const above=spaceBelow<200&&r.top>200;
-      // Always left-align with the button; clamp so it doesn't overflow the right edge
       const left=Math.min(r.left, window.innerWidth-214);
       setMenuPos({
         top:   above ? undefined : r.bottom+4,
@@ -1076,16 +1075,19 @@ function BuyButtons({book,compact=false}) {
 
   useEffect(()=>{
     if(!open)return;
-    function close(){setOpen(false);}
+    function close(e){
+      // Don't close if the pointer went down inside the dropdown or on the toggle button
+      if(dropdownRef.current&&dropdownRef.current.contains(e.target))return;
+      if(btnRef.current&&btnRef.current.contains(e.target))return;
+      setOpen(false);
+    }
     document.addEventListener("mousedown",close,true);
     document.addEventListener("touchstart",close,true);
-    window.addEventListener("scroll",close,true);
-    window.addEventListener("resize",close);
+    window.addEventListener("scroll",()=>setOpen(false),{once:true,capture:true});
+    window.addEventListener("resize",()=>setOpen(false),{once:true});
     return()=>{
       document.removeEventListener("mousedown",close,true);
       document.removeEventListener("touchstart",close,true);
-      window.removeEventListener("scroll",close,true);
-      window.removeEventListener("resize",close);
     };
   },[open]);
 
@@ -1095,9 +1097,9 @@ function BuyButtons({book,compact=false}) {
     {emoji:"🏷",label:"Half Price Books",url:links.hpb,bg:"#7f1d1d",color:"#fff"},
   ];
 
-  // Portal: renders at document.body so overflow:hidden on BookCard can't clip it
+  // Portal renders at document.body — outside any overflow:hidden ancestor
   const dropdown=open&&menuPos&&ReactDOM.createPortal(
-    <div onMouseDown={e=>e.stopPropagation()} style={{
+    <div ref={dropdownRef} style={{
       position:"fixed",top:menuPos.top,bottom:menuPos.bottom,
       left:menuPos.left,
       zIndex:9999,background:P.bgCard,borderRadius:14,
@@ -1680,7 +1682,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.5";
+const APP_VERSION="3.6";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
