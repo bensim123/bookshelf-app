@@ -13,6 +13,20 @@ All 4 files must be in the **same folder** on your web server.
 
 ---
 
+## Prerequisites: Cloudflare Worker — add RESEND_API_KEY (email notifications)
+
+Friend-request email notifications are sent through the Cloudflare Worker. If you've already deployed the worker:
+
+1. Go to your Cloudflare Worker dashboard → **Settings** → **Variables**
+2. Click **Add variable** → Variable name: `RESEND_API_KEY`
+3. Value: your key from [resend.com](https://resend.com) (free account, 3,000 emails/month)
+4. Click **Encrypt** → **Save and deploy**
+5. Paste the updated `worker.js` code from this repo (the worker now handles both AI and email)
+
+> If you skip this, AI features still work — email notifications just won't send.
+
+---
+
 ## Prerequisites: Firebase Setup
 
 The app uses Firebase for sign-in and cloud storage. Before deploying, make sure:

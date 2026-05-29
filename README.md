@@ -196,9 +196,9 @@ Replace those values with the ones you copied in step 2e.
 
 ---
 
-### Step 3 — Cloudflare Worker (AI Features)
+### Step 3 — Cloudflare Worker (AI Features + Email Notifications)
 
-The AI features (series detection, reading suggestions) use [Groq](https://groq.com)'s free API. Because API keys must never be exposed in a browser, requests go through a small proxy you deploy to Cloudflare Workers. Both services have free tiers.
+The AI features (series detection, reading suggestions) and friend-request email notifications share a single Cloudflare Worker. The Worker proxies AI requests to Groq and sends notification emails via Resend. All three services have free tiers.
 
 #### 3a. Get a Groq API key
 
@@ -206,7 +206,15 @@ The AI features (series detection, reading suggestions) use [Groq](https://groq.
 2. Click **API Keys** → **Create API Key**
 3. Copy and save the key — you won't be able to see it again
 
-#### 3b. Create a Cloudflare account and deploy the worker
+#### 3b. Get a Resend API key (for friend-request email notifications)
+
+1. Go to [resend.com](https://resend.com) and create a free account (3,000 emails/month free)
+2. Click **API Keys** → **Create API Key**
+3. Copy and save the key — you won't be able to see it again
+
+> **Note:** Resend's free tier sends from `onboarding@resend.dev`. You can optionally add a custom domain later from the Resend dashboard for a branded from-address.
+
+#### 3c. Create a Cloudflare account and deploy the worker
 
 1. Go to [cloudflare.com](https://cloudflare.com) and create a free account
 2. In the dashboard, click **Workers & Pages** in the left sidebar
@@ -222,22 +230,27 @@ The AI features (series detection, reading suggestions) use [Groq](https://groq.
      "http://localhost:3000",
    ]);
    ```
-9. Click **Deploy**
-10. Copy the worker URL — it looks like `https://bookshelf-ai.YOUR_SUBDOMAIN.workers.dev/`
+9. Also update `APP_URL` to point to your deployed app:
+   ```js
+   const APP_URL = "https://YOUR_USERNAME.github.io/bookshelf-app";
+   ```
+10. Click **Deploy**
+11. Copy the worker URL — it looks like `https://bookshelf-ai.YOUR_SUBDOMAIN.workers.dev/`
 
-> **Note — keeping the worker up to date:** The worker is not deployed automatically when you push to GitHub. Any time `worker.js` changes in the repo, you need to repeat steps 6–9 above (paste the new code, deploy) in your Cloudflare dashboard.
+> **Note — keeping the worker up to date:** The worker is not deployed automatically when you push to GitHub. Any time `worker.js` changes in the repo, you need to repeat steps 6–10 above (paste the new code, deploy) in your Cloudflare dashboard.
 
-#### 3c. Add the Groq API key as a Worker secret
+#### 3d. Add the API keys as Worker secrets
 
-The key is stored server-side so it's never exposed in the browser.
+Both keys are stored server-side so they're never exposed in the browser.
 
 1. In your worker's dashboard, click **Settings** → **Variables**
 2. Under **Environment Variables**, click **Add variable**
-3. Set **Variable name** to `GROQ_API_KEY`
-4. Set **Value** to the key you copied from Groq
-5. Click **Encrypt** (makes it a secret) → **Save and deploy**
+3. Add `GROQ_API_KEY` → paste your Groq key → **Encrypt** → **Save and deploy**
+4. Add `RESEND_API_KEY` → paste your Resend key → **Encrypt** → **Save and deploy**
 
-#### 3d. Update index.html with your worker URL
+> If you skip the Resend key, AI features still work — email notifications just won't send (they fail silently so the app isn't affected).
+
+#### 3e. Update index.html with your worker URL
 
 Open `index.html` and find:
 
@@ -245,7 +258,7 @@ Open `index.html` and find:
 const AI_PROXY_URL = "https://calm-butterfly-1f95.bensim123.workers.dev/";
 ```
 
-Replace the URL with the one you copied in step 3b.
+Replace the URL with the one you copied in step 3c.
 
 ---
 
