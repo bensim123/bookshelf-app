@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v319';
+const CACHE='bookshelf-v320';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v319 ok');
+        console.log('SW v320 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -771,13 +771,15 @@ function parseDoc(doc) {
   const i13=doc.isbn?.find(i=>i.length===13)||null, i10=doc.isbn?.find(i=>i.length===10)||null;
   const raw=doc.description;
   const olLangArr=doc.language||[];
-  // OL lists ALL edition languages on the work record, not just the primary one.
-  // A work like "Onyx Storm" may appear as "Alas de ónix" (Spanish primary title)
-  // with language=['dut','spa','ger','eng'] — language[0] would be 'dut' and wrongly
-  // filter out this result.  Treat any work that has at least one English edition as
-  // English so it passes the hard post-filter in the search function.
-  const isEngWork=olLangArr.length===0||olLangArr.includes('eng');
-  const isoLang=isEngWork?'en':(Object.entries(OL_LANG).find(([,v])=>v===olLangArr[0])?.[0]||(olLangArr[0]||'').slice(0,2)||'en');
+  // Use the PRIMARY language (index 0) for this work record.
+  // We do NOT expand to "any edition has English" — that lets in completely
+  // unrelated books (e.g. "Shelter from the Storm" has an English edition
+  // but is not the book the user searched for).
+  // Foreign-titled works that ARE the correct book (e.g. Turkish edition of
+  // "Onyx Storm" titled "Onyx Storm") are kept by the title-vs-query fuzzy
+  // match in the hard filter instead.
+  const olLang=olLangArr[0]||'eng';
+  const isoLang=Object.entries(OL_LANG).find(([,v])=>v===olLang)?.[0]||olLang.slice(0,2)||'en';
   return {
     id:doc.key?.replace("/works/","")||crypto.randomUUID(),
     title:doc.title||"Unknown Title", subtitle:doc.subtitle||"",
@@ -1671,15 +1673,35 @@ function SearchPanel({onAdd,onAddWishlist,onClose}) {
           return{...b,title,subtitle,cover,authors};
         }):olBooks;
 
-        // ── Dedup: prefer OL (richest metadata), then GB, then BN ────────────
+        // ── Intra-OL dedup ──────────────────────────────────────────────────
+        // OL can return the same book under multiple work records with slightly
+        // different titles ("Onyx Storm" and "Onyx Storm: Empyrean, Book 3").
+        // Keep the first occurrence (better metadata) and drop fuzzy duplicates.
+        const olDeduped=olMerged.reduce((acc,b)=>{
+          if(!acc.some(prev=>fuzz(prev.title,b.title)))acc.push(b);
+          return acc;
+        },[]);
+
+        // ── Combine OL + GB + BN, deduplicated ──────────────────────────────
         const combined=[
-          ...olMerged,
-          ...gbBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title))),
-          ...bnBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title))&&!gbBooks.some(g=>fuzz(g.title,b.title)))
+          ...olDeduped,
+          ...gbBooks.filter(b=>!olDeduped.some(o=>fuzz(o.title,b.title))),
+          ...bnBooks.filter(b=>!olDeduped.some(o=>fuzz(o.title,b.title))&&!gbBooks.some(g=>fuzz(g.title,b.title)))
         ];
-        // Hard-filter non-English; fall back to unfiltered for intentional non-English searches
-        if(!isISBN){const enOnly=combined.filter(b=>!b.language||b.language==='en');books=enOnly.length?enOnly:combined;}
-        else books=combined;
+
+        // ── Hard language filter ─────────────────────────────────────────────
+        // Keep results where:
+        //   a) primary language is English (or unknown) — normal case
+        //   b) the book's title fuzzy-matches the search query — this retains
+        //      correct English-titled editions that OL catalogued under a non-English
+        //      language code (e.g. the Turkish edition of "Onyx Storm" has the same
+        //      English title but language[0]='tur').
+        // This combination passes "Onyx Storm" (tur) while rejecting
+        // "Shelter from the Storm" (chi, title ≠ query).
+        if(!isISBN){
+          const enOnly=combined.filter(b=>!b.language||b.language==='en'||fuzz(b.title,query));
+          books=enOnly.length?enOnly:combined;
+        } else books=combined;
       }
       setRes(books);
       if(!books.length){
@@ -1835,7 +1857,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.19";
+const APP_VERSION="3.20";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
