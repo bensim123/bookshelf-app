@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v38';
+const CACHE='bookshelf-v310';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v38 ok');
+        console.log('SW v310 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1101,7 +1101,7 @@ function CoverImg({src,isbn13,isbn10,alt,style,icon="📖"}) {
   return <img src={cur} alt={alt} style={style} onError={onErr}/>;
 }
 function Sheet({children,onClose,noPad=false}) {
-  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(12px)"}}><div onClick={e=>e.stopPropagation()} className="sheet-inner" style={{background:P.bgCard,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:540,maxHeight:"94vh",overflowY:"auto",padding:noPad?0:"24px 20px 36px",boxShadow:"0 -2px 0 0 rgba(99,102,241,.4), 0 -24px 64px rgba(0,0,0,.6)",scrollbarWidth:"none",border:`1px solid ${P.border}`,borderBottom:"none"}}>{children}</div></div>;
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(12px)"}}><div onClick={e=>e.stopPropagation()} className="sheet-inner" style={{background:P.bgCard,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:540,maxHeight:"94vh",overflowY:"auto",overscrollBehavior:"none",padding:noPad?0:`24px 20px calc(36px + env(safe-area-inset-bottom))`,boxShadow:"0 -2px 0 0 rgba(99,102,241,.4), 0 -24px 64px rgba(0,0,0,.6)",scrollbarWidth:"none",border:`1px solid ${P.border}`,borderBottom:"none"}}>{children}</div></div>;
 }
 function ProgressBar({value,max,color=P.accent}) {
   const pct=max>0?Math.min((value/max)*100,100):0;
@@ -1581,14 +1581,23 @@ function SearchPanel({onAdd,onAddWishlist}) {
       // If ISBN lookup found nothing (or query wasn't an ISBN), run text search too
       if(books.length===0){
         const textQ=isISBN?clean:query;
-        const olBooks=await olSearch(textQ,12,null);
+        // For text searches, restrict to English; ISBN fallbacks don't restrict (looking for a specific edition)
+        const olBooks=await olSearch(textQ,12,isISBN?null:'en');
         // Google Books: for ISBNs that failed isbn: lookup, try plain text (different indexing)
-        // For normal queries, use the user's original text
+        // For normal queries, use the user's original text and restrict to English
         const gbQ=isISBN?encodeURIComponent(clean):encodeURIComponent(query);
-        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).catch(()=>null);
-        const gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
-        const seen=new Set(olBooks.map(b=>b.title.toLowerCase()));
-        books=[...olBooks,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
+        let gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12${isISBN?'':'&langRestrict=en'}`).catch(()=>null);
+        let gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
+        // If English-restricted search came back empty, retry without the language filter
+        if(!isISBN&&!gbBooks.length){const gbR2=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).catch(()=>null);gbBooks=gbR2?.ok?((await gbR2.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];}
+        // For text searches, prefer GB's English-edition cover art over OL's (which aggregates all-language ISBNs)
+        const gbByTitle=new Map(gbBooks.map(b=>[b.title.toLowerCase(),b]));
+        const olMerged=!isISBN?olBooks.map(b=>{const gb=gbByTitle.get(b.title.toLowerCase());return(gb&&gb.cover)?{...b,cover:gb.cover}:b;}):olBooks;
+        const seen=new Set(olMerged.map(b=>b.title.toLowerCase()));
+        const combined=[...olMerged,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
+        // Hard-filter non-English results; fall back to unfiltered only if nothing survives
+        if(!isISBN){const enOnly=combined.filter(b=>!b.language||b.language==='en');books=enOnly.length?enOnly:combined;}
+        else books=combined;
       }
       setRes(books);
       if(!books.length){
@@ -1600,7 +1609,7 @@ function SearchPanel({onAdd,onAddWishlist}) {
   }
   if(coverPickFor) return <CoverPickerModal book={coverPickFor} onSelect={url=>{const updated={...coverPickFor,cover:url};if(pendingBook){if(pendingMode==="wishlist"&&onAddWishlist)onAddWishlist(updated);else onAdd(updated);}else{setRes(r=>r.map(b=>b.id===coverPickFor.id?{...b,cover:url}:b));} setCoverPickFor(null);setPendingBook(null);setPendingMode("owned");}} onClose={()=>{setCoverPickFor(null);setPendingBook(null);setPendingMode("owned");}}/>;
   return <div>
-    <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" autoFocus style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
+    <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
     {err&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.6}}>{err}</div>}
     {busy&&<div style={{textAlign:"center",padding:"24px 0",color:P.muted,fontFamily:"'Nunito',sans-serif"}}>Searching…</div>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>{res.map(book=><div key={book.id} style={{display:"flex",gap:12,padding:"11px 12px",background:P.bgCard,borderRadius:12,border:`1px solid ${P.border}`,transition:"border-color .15s,background .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=P.bgSurface;e.currentTarget.style.borderColor=P.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=P.bgCard;e.currentTarget.style.borderColor=P.border;}}>
@@ -1740,7 +1749,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.8";
+const APP_VERSION="3.10";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
