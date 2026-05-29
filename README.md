@@ -115,6 +115,11 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
+    // Books subcollection — each book is its own document; same ownership rule
+    match /users/{userId}/books/{bookId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Public profiles — any signed-in user can read; only the owner can write
     // Used for friend discovery and viewing a friend's library stats
     match /profiles/{userId} {

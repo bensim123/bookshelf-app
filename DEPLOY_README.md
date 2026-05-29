@@ -31,6 +31,11 @@ The app uses Firebase for sign-in and cloud storage. Before deploying, make sure
          allow read, write: if request.auth != null && request.auth.uid == userId;
        }
 
+       // Books subcollection — each book is its own document
+       match /users/{userId}/books/{bookId} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+
        // Public profiles — readable by any signed-in user, writable only by owner
        match /profiles/{userId} {
          allow read: if request.auth != null;

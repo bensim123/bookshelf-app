@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v37';
+const CACHE='bookshelf-v38';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v37 ok');
+        console.log('SW v38 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -211,35 +211,54 @@ const FIREBASE_CONFIG = {
 firebase.initializeApp(FIREBASE_CONFIG);
 
 // ─── Storage (Firestore-backed, localStorage fallback for theme) ──────────────
-let _userDocRef = null;
-let _userCache  = null;
+//
+// Books are stored in a subcollection: users/{uid}/books/{bookId}
+// Everything else (goal, theme, achievements, shelves, etc.) stays in users/{uid}.
+// This removes the 1 MB per-document ceiling entirely — each book is its own doc.
+//
+let _userDocRef  = null;
+let _booksColRef = null;   // users/{uid}/books subcollection reference
+let _userCache   = null;
+let _booksInFS   = null;   // Map<bookId, serialized> — tracks Firestore state for diffing
 const _saveTimers = {};
-let _docSizeWarnedAt = 0; // throttle size warnings to once per session
 
-// Firestore has a hard 1 MB per-document limit. Estimate the current size
-// and warn the user before they silently hit it.
-function checkDocSize(cache) {
-  try {
-    const bytes = new Blob([JSON.stringify(cache)]).size;
-    const kb = Math.round(bytes / 1024);
-    if (bytes > 800_000 && Date.now() - _docSizeWarnedAt > 3_600_000) {
-      _docSizeWarnedAt = Date.now();
-      console.warn(`Bookshelf doc size: ${kb} KB (limit ~1000 KB)`);
-      // Surface warning via a custom event the App component can catch
-      window.dispatchEvent(new CustomEvent('bs:docsize', { detail: { kb } }));
-    }
-  } catch {}
+// Trim long descriptions before writing — Open Library/Google Books descriptions
+// can be 2000+ chars. 400 is plenty for display; trimming keeps individual book
+// docs small and speeds up import/export operations.
+function trimBook(b) {
+  if (!b || !b.description || b.description.length <= 400) return b;
+  return { ...b, description: b.description.slice(0, 400) + '…' };
 }
 
-// Trim book descriptions before saving — they are the single biggest contributor
-// to document bloat (often 500–2000 chars each from Open Library / Google Books).
-// The full text is only ever shown in the detail view; 400 chars is plenty.
-function trimBooks(books) {
-  if (!Array.isArray(books)) return books;
-  return books.map(b => {
-    if (!b.description || b.description.length <= 400) return b;
-    return { ...b, description: b.description.slice(0, 400) + '…' };
-  });
+// Write only the books that changed since the last Firestore write.
+// Uses the _booksInFS map as the reference state. Batches in chunks of 500
+// (Firestore per-batch limit). Safe to call synchronously in beforeunload.
+function _flushBooksDiff(books) {
+  if (!_booksColRef || _booksInFS === null) return;
+  const db = firebase.firestore();
+  const trimmed = (books || []).map(trimBook);
+  const newMap  = new Map(trimmed.map(b => [b.id, JSON.stringify(b)]));
+  const ops = [];
+
+  for (const [id, serial] of newMap) {
+    if (_booksInFS.get(id) !== serial) ops.push({ type:'set', id, data: trimmed.find(b=>b.id===id) });
+  }
+  for (const [id] of _booksInFS) {
+    if (!newMap.has(id)) ops.push({ type:'delete', id });
+  }
+
+  if (!ops.length) return;
+
+  for (let i = 0; i < ops.length; i += 500) {
+    const batch = db.batch();
+    for (const op of ops.slice(i, i + 500)) {
+      const ref = _booksColRef.doc(op.id);
+      op.type === 'set' ? batch.set(ref, op.data) : batch.delete(ref);
+    }
+    batch.commit().catch(e => console.error('Books batch write failed:', e));
+  }
+
+  _booksInFS = newMap; // optimistic update — matches what we just sent
 }
 
 const load = (k, d) => {
@@ -249,16 +268,22 @@ const load = (k, d) => {
 };
 
 const save = (k, v) => {
-  const toStore = k === 'books' ? trimBooks(v) : v;
-  if (_userCache !== null) _userCache[k] = toStore;
+  if (_userCache !== null) _userCache[k] = v;
   if (k === 'theme') { try { localStorage.setItem('bs_theme', JSON.stringify(v)); } catch {} }
   if (!_userDocRef) return;
+
+  if (k === 'books') {
+    // Books go to the subcollection, not the user document
+    clearTimeout(_saveTimers.books);
+    _saveTimers.books = setTimeout(() => _flushBooksDiff(v), 600);
+    return;
+  }
+
   clearTimeout(_saveTimers[k]);
   _saveTimers[k] = setTimeout(() => {
     if (!_userDocRef) return;
-    if (k === 'books') checkDocSize(_userCache);
-    _userDocRef.set({ [k]: toStore }, { merge: true }).catch(e => console.error('Firestore save failed:', e));
-  }, k === 'books' ? 600 : 0);
+    _userDocRef.set({ [k]: v }, { merge: true }).catch(e => console.error('Firestore save failed:', e));
+  }, 0);
 };
 
 // ─── Groq AI helpers (via Cloudflare Worker proxy) ───────────────────────────
@@ -273,12 +298,16 @@ async function aiText(prompt, maxTokens=5000) {
   return d?.choices?.[0]?.message?.content || "";
 }
 
-// Best-effort flush on page unload
+// Best-effort flush on page unload — fire-and-forget (browser may not wait)
 window.addEventListener('beforeunload', () => {
   if (!_userDocRef || !_userCache) return;
   Object.keys(_saveTimers).forEach(k => {
     clearTimeout(_saveTimers[k]);
-    _userDocRef.set({ [k]: _userCache[k] }, { merge: true });
+    if (k === 'books') {
+      _flushBooksDiff(_userCache.books || []);
+    } else {
+      _userDocRef.set({ [k]: _userCache[k] }, { merge: true });
+    }
   });
 });
 
@@ -1711,7 +1740,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.7";
+const APP_VERSION="3.8";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -3127,15 +3156,7 @@ function App({ user }) {
     prevPendingRef.current=pendingRequests.length;
   },[pendingRequests]);
 
-  // Warn if the Firestore document is approaching the 1 MB limit
-  useEffect(()=>{
-    function onDocSize(e){
-      const {kb}=e.detail;
-      showToast(`⚠️ Library data is ${kb} KB — approaching Firestore's 1 MB limit. Consider exporting a backup (Settings → Export CSV).`,8000);
-    }
-    window.addEventListener('bs:docsize',onDocSize);
-    return()=>window.removeEventListener('bs:docsize',onDocSize);
-  },[]);
+  // (no doc-size guard needed — books now live in a subcollection with no size ceiling)
 
   // Check monthly challenge whenever books change
   useEffect(()=>{
@@ -4050,12 +4071,58 @@ function Root() {
         return;
       }
       try {
-        _userDocRef = firebase.firestore().doc(`users/${firebaseUser.uid}`);
-        const snap  = await _userDocRef.get();
-        _userCache  = snap.exists
-          ? snap.data()
-          : { books:null, goal:0, shelves:[], achievements:[], savedViews:[], onboarded:false, lastBackup:null, friends:[] };
-        if (!snap.exists) await _userDocRef.set(_userCache);
+        const db      = firebase.firestore();
+        _userDocRef   = db.doc(`users/${firebaseUser.uid}`);
+        _booksColRef  = _userDocRef.collection('books');
+
+        // Load user settings doc and books subcollection in parallel
+        const [snap, booksSnap] = await Promise.all([
+          _userDocRef.get(),
+          _booksColRef.get(),
+        ]);
+
+        const userData = snap.exists ? snap.data() : {};
+        let books;
+
+        if (!booksSnap.empty) {
+          // ── Already on subcollection format ──────────────────────────────────
+          books = booksSnap.docs.map(d => d.data());
+          // Clean up any leftover books array in the user doc
+          if (userData.books) {
+            _userDocRef.update({ books: firebase.firestore.FieldValue.delete() })
+              .catch(() => {});
+          }
+        } else if (userData.books && userData.books.length > 0) {
+          // ── Migrate: move books array → subcollection ─────────────────────
+          console.log(`Bookshelf: migrating ${userData.books.length} books to subcollection…`);
+          books = userData.books;
+          const trimmed = books.map(trimBook);
+          for (let i = 0; i < trimmed.length; i += 490) {
+            const batch = db.batch();
+            for (const b of trimmed.slice(i, i + 490)) batch.set(_booksColRef.doc(b.id), b);
+            // Remove the old books array field on the first batch
+            if (i === 0) batch.update(_userDocRef, { books: firebase.firestore.FieldValue.delete() });
+            await batch.commit();
+          }
+          console.log('Bookshelf: migration complete');
+        } else {
+          books = [];
+        }
+
+        // Initialise the diff tracker so future saves only write changed docs
+        _booksInFS = new Map(books.map(b => [b.id, JSON.stringify(trimBook(b))]));
+
+        // Build the in-memory cache — books array lives here but NOT in Firestore user doc
+        const { books: _legacy, ...settingsData } = userData;
+        _userCache = {
+          goal:0, shelves:[], achievements:[], savedViews:[],
+          onboarded:false, lastBackup:null, friends:[],
+          ...settingsData,
+          books: books.length ? books : null,
+        };
+
+        if (!snap.exists) await _userDocRef.set(settingsData);
+
         setUser(firebaseUser);
         setAuthState('authenticated');
         writePublicProfile(firebaseUser);
