@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v310';
+const CACHE='bookshelf-v311';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v310 ok');
+        console.log('SW v311 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1101,7 +1101,20 @@ function CoverImg({src,isbn13,isbn10,alt,style,icon="📖"}) {
   return <img src={cur} alt={alt} style={style} onError={onErr}/>;
 }
 function Sheet({children,onClose,noPad=false}) {
-  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(12px)"}}><div onClick={e=>e.stopPropagation()} className="sheet-inner" style={{background:P.bgCard,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:540,maxHeight:"94vh",overflowY:"auto",overscrollBehavior:"none",padding:noPad?0:`24px 20px calc(36px + env(safe-area-inset-bottom))`,boxShadow:"0 -2px 0 0 rgba(99,102,241,.4), 0 -24px 64px rgba(0,0,0,.6)",scrollbarWidth:"none",border:`1px solid ${P.border}`,borderBottom:"none"}}>{children}</div></div>;
+  // Track keyboard height via Visual Viewport API so the sheet lifts above the keyboard on iOS.
+  // On iOS, position:fixed is anchored to the layout viewport (full screen), not the visual viewport
+  // (above keyboard). Without this, the sheet panel sits behind the keyboard and the backdrop
+  // alone (30% opacity) shows the library below.
+  const [kbOffset,setKbOffset]=useState(0);
+  useEffect(()=>{
+    if(!window.visualViewport) return;
+    const upd=()=>setKbOffset(Math.max(0,window.innerHeight-window.visualViewport.height-window.visualViewport.offsetTop));
+    window.visualViewport.addEventListener('resize',upd);
+    window.visualViewport.addEventListener('scroll',upd);
+    upd();
+    return()=>{window.visualViewport.removeEventListener('resize',upd);window.visualViewport.removeEventListener('scroll',upd);};
+  },[]);
+  return <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:900,display:"flex",alignItems:"flex-end",justifyContent:"center",backdropFilter:"blur(12px)"}}><div onClick={e=>e.stopPropagation()} className="sheet-inner" style={{background:P.bgCard,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:540,maxHeight:"90vh",overflowY:"auto",overscrollBehavior:"none",padding:noPad?0:`24px 20px calc(36px + env(safe-area-inset-bottom))`,boxShadow:"0 -2px 0 0 rgba(99,102,241,.4), 0 -24px 64px rgba(0,0,0,.6)",scrollbarWidth:"none",border:`1px solid ${P.border}`,borderBottom:"none",marginBottom:kbOffset}}>{children}</div></div>;
 }
 function ProgressBar({value,max,color=P.accent}) {
   const pct=max>0?Math.min((value/max)*100,100):0;
@@ -1581,21 +1594,21 @@ function SearchPanel({onAdd,onAddWishlist}) {
       // If ISBN lookup found nothing (or query wasn't an ISBN), run text search too
       if(books.length===0){
         const textQ=isISBN?clean:query;
-        // For text searches, restrict to English; ISBN fallbacks don't restrict (looking for a specific edition)
-        const olBooks=await olSearch(textQ,12,isISBN?null:'en');
-        // Google Books: for ISBNs that failed isbn: lookup, try plain text (different indexing)
-        // For normal queries, use the user's original text and restrict to English
+        // No API-level language restrictions: OL's language=eng param returns wrong primary results
+        // (e.g. "Alas de ónix" for "Onyx Storm"); GB langRestrict=en fails for recently-published books.
+        // The hard post-filter below is the reliable layer for both APIs.
+        const olBooks=await olSearch(textQ,12,null);
         const gbQ=isISBN?encodeURIComponent(clean):encodeURIComponent(query);
-        let gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12${isISBN?'':'&langRestrict=en'}`).catch(()=>null);
-        let gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
-        // If English-restricted search came back empty, retry without the language filter
-        if(!isISBN&&!gbBooks.length){const gbR2=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).catch(()=>null);gbBooks=gbR2?.ok?((await gbR2.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];}
-        // For text searches, prefer GB's English-edition cover art over OL's (which aggregates all-language ISBNs)
-        const gbByTitle=new Map(gbBooks.map(b=>[b.title.toLowerCase(),b]));
-        const olMerged=!isISBN?olBooks.map(b=>{const gb=gbByTitle.get(b.title.toLowerCase());return(gb&&gb.cover)?{...b,cover:gb.cover}:b;}):olBooks;
-        const seen=new Set(olMerged.map(b=>b.title.toLowerCase()));
-        const combined=[...olMerged,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase()))];
-        // Hard-filter non-English results; fall back to unfiltered only if nothing survives
+        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).catch(()=>null);
+        const gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
+        // Fuzzy title match handles subtitle variants: "Onyx Storm" ↔ "Onyx Storm: Empyrean, Book 3"
+        const fuzz=(a,b)=>{const ta=a.toLowerCase().trim(),tb=b.toLowerCase().trim();return ta===tb||ta.startsWith(tb+':')||ta.startsWith(tb+',')||tb.startsWith(ta+':')||tb.startsWith(ta+',');};
+        // Override OL cover with GB cover when fuzzy-matched (OL aggregates all-language ISBNs so its
+        // first ISBN may be a non-English edition; GB returns the edition-specific cover)
+        const olMerged=!isISBN?olBooks.map(b=>{const gb=gbBooks.find(g=>fuzz(b.title,g.title));return(gb&&gb.cover)?{...b,cover:gb.cover}:b;}):olBooks;
+        // Dedup using fuzzy match so subtitle variants don't produce duplicate cards
+        const combined=[...olMerged,...gbBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title)))];
+        // Hard-filter non-English; fall back to unfiltered if nothing survives (allows intentional non-English searches)
         if(!isISBN){const enOnly=combined.filter(b=>!b.language||b.language==='en');books=enOnly.length?enOnly:combined;}
         else books=combined;
       }
@@ -1749,7 +1762,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.10";
+const APP_VERSION="3.11";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
