@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v318';
+const CACHE='bookshelf-v319';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v318 ok');
+        console.log('SW v319 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -770,8 +770,14 @@ function parseDoc(doc) {
   if(!doc) return null;
   const i13=doc.isbn?.find(i=>i.length===13)||null, i10=doc.isbn?.find(i=>i.length===10)||null;
   const raw=doc.description;
-  const olLang = doc.language?.[0]||"eng";
-  const isoLang = Object.entries(OL_LANG).find(([,v])=>v===olLang)?.[0] || olLang.slice(0,2);
+  const olLangArr=doc.language||[];
+  // OL lists ALL edition languages on the work record, not just the primary one.
+  // A work like "Onyx Storm" may appear as "Alas de ónix" (Spanish primary title)
+  // with language=['dut','spa','ger','eng'] — language[0] would be 'dut' and wrongly
+  // filter out this result.  Treat any work that has at least one English edition as
+  // English so it passes the hard post-filter in the search function.
+  const isEngWork=olLangArr.length===0||olLangArr.includes('eng');
+  const isoLang=isEngWork?'en':(Object.entries(OL_LANG).find(([,v])=>v===olLangArr[0])?.[0]||(olLangArr[0]||'').slice(0,2)||'en');
   return {
     id:doc.key?.replace("/works/","")||crypto.randomUUID(),
     title:doc.title||"Unknown Title", subtitle:doc.subtitle||"",
@@ -1620,35 +1626,58 @@ function SearchPanel({onAdd,onAddWishlist,onClose}) {
       // If ISBN lookup found nothing (or query wasn't an ISBN), run text search
       if(books.length===0){
         const textQ=isISBN?clean:query;
-        const gbQ=isISBN?encodeURIComponent(clean):encodeURIComponent(query);
-        // Run all three sources in parallel for speed; B&N silently returns [] on CORS/error
+        // intitle: gives Google Books far more precise title matches than a bare query string
+        const gbQ=isISBN?`isbn:${encodeURIComponent(clean)}`:`intitle:${encodeURIComponent(query)}`;
+        // Run all three sources in parallel; B&N silently returns [] on CORS/error
         const [olBooks,gbData,bnBooks]=await Promise.all([
           olSearch(textQ,12,null),
           fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).then(r=>r.ok?r.json():null).catch(()=>null),
           isISBN?Promise.resolve([]):_bnSearch(query)
         ]);
         const gbBooks=(gbData?.items||[]).map(parseGoogleVolume).filter(Boolean);
-        // Fuzzy title match handles subtitle variants e.g. "Onyx Storm" ↔ "Onyx Storm: Empyrean, Book 3"
+
+        // ── Matching helpers ────────────────────────────────────────────────
+        // Fuzzy title match: handles subtitle variants ("Onyx Storm" ↔ "Onyx Storm: Empyrean, Book 3")
         const fuzz=(a,b)=>{const ta=a.toLowerCase().trim(),tb=b.toLowerCase().trim();return ta===tb||ta.startsWith(tb+':')||ta.startsWith(tb+',')||tb.startsWith(ta+':')||tb.startsWith(ta+',');};
-        // Enrich OL results: pull cover and authors from GB or BN when OL is missing them
-        // (OL's first ISBN may be a non-English edition with a foreign cover; GB/BN always return
-        // the English edition cover. OL sometimes lacks author data for newer books.)
+        // Cross-language match: same author surname + same publication year (±1).
+        // Used when OL's primary title is in a foreign language but the work has English
+        // editions — e.g. OL lists "Alas de ónix" for "Onyx Storm" because the aggregated
+        // work was first catalogued in Spanish.
+        const sameBook=(ol,ext)=>{
+          const olA=(ol.authors?.[0]||'').toLowerCase(), extA=(ext.authors?.[0]||'').toLowerCase();
+          if(!olA||!extA) return false;
+          const sur=s=>s.split(/[\s,]+/).filter(Boolean).pop()||s;
+          if(!sur(extA).startsWith(sur(olA).slice(0,4))) return false;
+          if(!ol.year||!ext.year) return true;
+          return Math.abs(parseInt(ol.year)-parseInt(ext.year))<=1;
+        };
+        const hasForeignChars=t=>/[^\x00-\x7F]/.test(t);
+
+        // ── Enrich OL results with GB/BN data ────────────────────────────────
         const allExt=[...gbBooks,...bnBooks];
         const olMerged=!isISBN?olBooks.map(b=>{
-          const ext=allExt.find(g=>fuzz(b.title,g.title));
-          if(!ext)return b;
+          // 1. Try fuzzy title match (handles subtitle variants)
+          let ext=allExt.find(g=>fuzz(b.title,g.title));
+          // 2. If OL title is in a foreign script, try author+year cross-language match
+          //    This is how "Alas de ónix" gets matched to "Onyx Storm" from GB/BN
+          if(!ext&&hasForeignChars(b.title)) ext=allExt.find(g=>sameBook(b,g));
+          if(!ext) return b;
           const cover=ext.cover||b.cover;
           const noAuthor=!b.authors?.length||b.authors[0]==="Unknown Author";
           const authors=noAuthor&&ext.authors?.length?ext.authors:b.authors;
-          return{...b,cover,authors};
+          // Replace foreign OL title with the English title from GB/BN
+          const title=hasForeignChars(b.title)&&ext.title?ext.title:b.title;
+          const subtitle=hasForeignChars(b.title)&&!b.subtitle&&ext.subtitle?ext.subtitle:b.subtitle;
+          return{...b,title,subtitle,cover,authors};
         }):olBooks;
-        // Dedup: prefer OL (richest metadata), then GB, then BN
+
+        // ── Dedup: prefer OL (richest metadata), then GB, then BN ────────────
         const combined=[
           ...olMerged,
           ...gbBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title))),
           ...bnBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title))&&!gbBooks.some(g=>fuzz(g.title,b.title)))
         ];
-        // Hard-filter non-English; fall back to unfiltered to allow intentional non-English searches
+        // Hard-filter non-English; fall back to unfiltered for intentional non-English searches
         if(!isISBN){const enOnly=combined.filter(b=>!b.language||b.language==='en');books=enOnly.length?enOnly:combined;}
         else books=combined;
       }
@@ -1672,7 +1701,7 @@ function SearchPanel({onAdd,onAddWishlist,onClose}) {
     <div style={{display:"flex",flexDirection:"column",gap:10}}>{res.map(book=><div key={book.id} style={{display:"flex",gap:12,padding:"11px 12px",background:P.bgCard,borderRadius:12,border:`1px solid ${P.border}`,transition:"border-color .15s,background .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=P.bgSurface;e.currentTarget.style.borderColor=P.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=P.bgCard;e.currentTarget.style.borderColor=P.border;}}>
       {/* Cover thumbnail — tap to pick different cover */}
       <div onClick={()=>setCoverPickFor(book)} title="Change cover" style={{width:46,height:64,borderRadius:7,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",border:`1px solid ${P.border}`}}>
-        {book.cover?<img src={book.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{e.target.style.display="none";}}/>:<span style={{fontSize:18}}>📖</span>}
+        {book.cover?<img src={book.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{const cands=book.coverCandidates||[];const i=cands.indexOf(e.target.src);if(i>=0&&i<cands.length-1){e.target.src=cands[i+1];}else{e.target.style.display="none";}}}/>:<span style={{fontSize:18}}>📖</span>}
         <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity .15s",fontSize:14}} onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.background="rgba(0,0,0,.4)";}} onMouseLeave={e=>{e.currentTarget.style.opacity=0;e.currentTarget.style.background="rgba(0,0,0,0)";}}>🖼</div>
       </div>
       <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>onAdd(book)}>
@@ -1806,7 +1835,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.18";
+const APP_VERSION="3.19";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
