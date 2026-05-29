@@ -29,7 +29,8 @@ A personal book library tracker that runs entirely as a web app — no app store
 - **Works offline** after first load (service worker caching)
 - **Multi-device sync** via Firebase Firestore
 - **Google Sign-In** — one tap login, no password
-- **Friends** — add friends by email, view their library stats and achievements
+- **Friends** — add friends by email; friend requests trigger an email notification to the recipient; view friends' library stats, achievements, and wishlists
+- **Buy links** — every wishlist book shows one-tap links to Amazon, Barnes & Noble, and Half Price Books
 
 ---
 
@@ -44,6 +45,7 @@ A personal book library tracker that runs entirely as a web app — no app store
 | Book data | Open Library API + Google Books API (no key required) |
 | Barcode scanning | ZXing `@zxing/browser` via jsDelivr |
 | AI (series/suggestions) | Groq `llama-3.3-70b-versatile` via Cloudflare Worker proxy |
+| Email notifications | Resend (friend-request emails, free tier: 3,000/month) |
 | Fonts | Playfair Display + Nunito (Google Fonts) |
 | Hosting | GitHub Pages |
 
@@ -53,12 +55,12 @@ Everything ships in a single `index.html` — no build pipeline, no npm, no node
 
 ## Setting Up Your Own Copy
 
-There are **three external services** to configure: Firebase (auth + database), a Cloudflare Worker (AI proxy), and GitHub Pages (hosting). All have free tiers that are more than sufficient for personal use.
+There are **four external services** to configure: Firebase (auth + database), a Cloudflare Worker (AI + email proxy), Groq (AI), Resend (email), and GitHub Pages (hosting). All have free tiers that are more than sufficient for personal use.
 
 **Overview of what you'll do:**
 1. Fork this repo
 2. Create a Firebase project → get a config block → paste it into `index.html`
-3. Get a Groq API key → deploy the Cloudflare Worker → paste the worker URL into `index.html`
+3. Get a Groq API key and a Resend API key → deploy the Cloudflare Worker → paste the worker URL into `index.html`
 4. Enable GitHub Pages on your fork
 5. Add your GitHub Pages domain to Firebase's allowed list
 
@@ -365,6 +367,9 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 **AI works locally but not on GitHub Pages**
 → Your GitHub Pages URL isn't in `ALLOWED_ORIGINS` in `worker.js`. Add it and redeploy the worker.
 
+**Friend request was sent but recipient got no email**
+→ The `RESEND_API_KEY` secret may not be set in your Cloudflare Worker. Go to the worker dashboard → Settings → Variables → add `RESEND_API_KEY` (encrypted). Also make sure you've deployed the latest `worker.js`. The friend request itself is still saved in Firestore — email is a bonus notification only.
+
 **Friend profile shows "Profile access was blocked"**
 → Your Firestore rules don't include the `profiles` collection. Paste the full four-collection ruleset from Step 2d above into Firebase Console → Firestore → Rules → Publish.
 
@@ -399,7 +404,7 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 | File | Purpose |
 |------|---------|
 | `index.html` | Complete app — React, all components, all logic |
-| `worker.js` | Cloudflare Worker source — AI proxy for Groq API |
+| `worker.js` | Cloudflare Worker source — AI proxy (Groq) + friend-request email notifications (Resend) |
 | `manifest.json` | PWA metadata (name, icons, display mode, theme) |
 | `icon.png` / `icon192.png` / `icon512.png` | App icons |
 | `README.md` | This file |
