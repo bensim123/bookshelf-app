@@ -220,6 +220,8 @@ The AI features (series detection, reading suggestions) use [Groq](https://groq.
 9. Click **Deploy**
 10. Copy the worker URL — it looks like `https://bookshelf-ai.YOUR_SUBDOMAIN.workers.dev/`
 
+> **Note — keeping the worker up to date:** The worker is not deployed automatically when you push to GitHub. Any time `worker.js` changes in the repo, you need to repeat steps 6–9 above (paste the new code, deploy) in your Cloudflare dashboard.
+
 #### 3c. Add the Groq API key as a Worker secret
 
 The key is stored server-side so it's never exposed in the browser.
@@ -281,6 +283,39 @@ If you changed the port, add it to both places.
 
 ---
 
+## Sharing with Friends & Family
+
+Multiple people can use the same deployment — each person signs in with their own Google account and gets a completely separate, private library. No extra setup is required for them beyond having a Google account.
+
+**What each new person needs to do:**
+
+1. Open your GitHub Pages URL in Safari on their phone (or any browser on desktop)
+2. Tap **Sign in with Google** and use their own Google account
+3. Their library is created automatically — it's private to them
+
+**What you need to do when adding someone new:**
+
+1. Go to Firebase Console → **Authentication** → **Settings** → **Authorized domains**
+2. Click **Add domain** and enter the domain they'll be using
+
+   - If they're using your URL (e.g. `bensim123.github.io`) — nothing to do, it's already authorized
+   - If they're running their own fork at a different GitHub Pages URL, add their `theirusername.github.io`
+
+**Cost:** The Firebase free tier (Spark plan) supports thousands of daily active users before any charges apply. For friends and family, you will never pay anything:
+
+| What | Free allowance | Typical usage per person/day |
+|------|---------------|------------------------------|
+| Firestore reads | 50,000 / day | ~3 |
+| Firestore writes | 20,000 / day | ~5 |
+| Firestore storage | 1 GB total | ~200 KB per user |
+| AI requests (Cloudflare) | 100,000 / day | occasional |
+
+**Using the Friends feature:**
+
+Once multiple people are using the app, they can connect by going to the profile icon → **Friends** → **Add Friend** and entering each other's email addresses. Connected friends can see each other's reading stats, achievements, and wishlists.
+
+---
+
 ## Installing to Your iPhone Home Screen
 
 1. Open your GitHub Pages URL in **Safari** (must be Safari — Chrome doesn't support this on iOS)
@@ -306,8 +341,23 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 **AI features show "failed" or nothing**
 → Check that `AI_PROXY_URL` in `index.html` matches your worker URL exactly, including the trailing slash. Also verify the `GROQ_API_KEY` secret is set in the worker. Check the worker's **Logs** tab in the Cloudflare dashboard for errors.
 
+**AI shows "Too many requests — please wait a moment"**
+→ The worker rate-limits AI calls to one per IP per 30 seconds to protect the Groq free-tier quota. Wait a moment and try again. This only affects rapid repeated taps; normal use is unaffected.
+
 **AI works locally but not on GitHub Pages**
 → Your GitHub Pages URL isn't in `ALLOWED_ORIGINS` in `worker.js`. Add it and redeploy the worker.
+
+**Friend profile shows "Profile access was blocked"**
+→ Your Firestore rules don't include the `profiles` collection. Paste the full four-collection ruleset from Step 2d above into Firebase Console → Firestore → Rules → Publish.
+
+**Friend profile shows "hasn't opened Bookshelf yet"**
+→ The friend needs to open the app at least once after you both signed up. Their profile is written automatically on first login.
+
+**Friend profile shows "Stats not synced yet"**
+→ The friend's profile exists but their library stats haven't been published. They need to open the app while signed in — stats sync automatically within a few seconds of opening.
+
+**"Add Friend" search can't find someone by email**
+→ They need to have signed into the app at least once so their email is registered. Ask them to open the app and sign in, then try the search again.
 
 **Data doesn't sync across devices**
 → Make sure you're signed in with the same Google account on both devices.
@@ -320,6 +370,9 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 
 **"Add to Home Screen" is greyed out**
 → Must use Safari on iOS. Chrome and Firefox do not support PWA install prompts on iOS.
+
+**Warning: "Library data is X KB — approaching Firestore's 1 MB limit"**
+→ Your library is large. Go to Settings → Export CSV to make a backup. The app automatically trims long book descriptions before saving to keep the document small, but very large libraries with extensive notes may eventually approach this limit.
 
 ---
 

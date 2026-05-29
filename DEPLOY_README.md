@@ -19,14 +19,47 @@ The app uses Firebase for sign-in and cloud storage. Before deploying, make sure
 
 1. **Google Sign-In is enabled** in Firebase Console → Authentication → Sign-in method → Google → Enable
 2. **Your hosting domain is authorized** in Firebase Console → Authentication → Settings → Authorized domains → Add domain (e.g. `yourusername.github.io`)
-3. **Firestore security rules** are set (Firestore → Rules tab):
+3. **Firestore security rules** are set (Firestore → Rules tab). Paste the entire block below and click **Publish**:
+
    ```
    rules_version = '2';
    service cloud.firestore {
      match /databases/{database}/documents {
+
+       // Private user data
        match /users/{userId} {
          allow read, write: if request.auth != null && request.auth.uid == userId;
        }
+
+       // Public profiles — readable by any signed-in user, writable only by owner
+       match /profiles/{userId} {
+         allow read: if request.auth != null;
+         allow write: if request.auth != null && request.auth.uid == userId;
+       }
+
+       // Email → UID index (friend search) — users can only write their own entry
+       match /emailToUid/{emailKey} {
+         allow read: if request.auth != null;
+         allow write: if request.auth != null
+                      && request.resource.data.uid == request.auth.uid;
+       }
+
+       // Friend requests
+       match /friendRequests/{requestId} {
+         allow read: if request.auth != null && (
+           resource.data.toUid   == request.auth.uid ||
+           resource.data.fromUid == request.auth.uid
+         );
+         allow create: if request.auth != null
+                       && request.resource.data.fromUid == request.auth.uid;
+         allow update: if request.auth != null
+                       && resource.data.toUid == request.auth.uid;
+         allow delete: if request.auth != null && (
+           resource.data.toUid   == request.auth.uid ||
+           resource.data.fromUid == request.auth.uid
+         );
+       }
+
      }
    }
    ```
@@ -68,9 +101,11 @@ Then add `yourusername.github.io` to Firebase Authorized Domains (see Prerequisi
 - Opens fullscreen — no Safari browser chrome
 - Works offline after first load (service worker caches assets)
 - Your library syncs across all devices via Firebase
-- Each user's library is private (Google Sign-In required)
+- Each user's library is completely private (Google Sign-In required)
 - Camera access for barcode scanning works
 - Feels like a native app
+- Multiple people can use the same deployment — each person signs in with their own Google account and gets a separate private library
+- Use the Friends feature (profile icon → Friends) to connect with others using the app and compare reading stats
 
 ---
 
@@ -93,6 +128,12 @@ Then add `yourusername.github.io` to Firebase Authorized Domains (see Prerequisi
 
 **Data doesn't appear on another device**
 → Sign in with the same Google account. Data is linked to your Google account, not the device.
+
+**Friend profile shows "Profile access was blocked"**
+→ Your Firestore rules are out of date — they're missing the `profiles`, `emailToUid`, and `friendRequests` collections. Replace them with the full four-collection ruleset in the Prerequisites section above.
+
+**"Add Friend" search can't find someone**
+→ They need to have opened and signed into the app at least once first. Ask them to launch it, then try searching again.
 
 ---
 
