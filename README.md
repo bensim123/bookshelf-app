@@ -30,7 +30,7 @@ A personal book library tracker that runs entirely as a web app — no app store
 - **Multi-device sync** via Firebase Firestore
 - **Flexible sign-in** — Google, Microsoft (SSO), or email/password with a full sign-up flow; password reset by email
 - **Account management** — delete your account from the profile menu; 90-day soft-delete window lets you sign back in to restore everything before it's permanently removed
-- **Friends** — find friends from your device contacts (iOS Safari 14.5+ / Chrome Android) or search by email; friend requests trigger an email notification to the recipient; view friends' library stats, achievements, and wishlists
+- **Friends** — add friends by email search or share a personal link (opens the native share sheet on iOS/Android so you can send it via Messages, WhatsApp, AirDrop, etc.); friend requests trigger an email notification to the recipient; view friends' library stats, achievements, and wishlists
 - **Buy links** — every wishlist book shows one-tap links to Amazon, Barnes & Noble, and Half Price Books
 
 ---
@@ -355,7 +355,7 @@ Multiple people can use the same deployment — each person signs in with their 
 
 **Using the Friends feature:**
 
-Once multiple people are using the app, they can connect via the profile icon → **Friends** → **Add Friend**. From there they can search by email address or tap **Find Friends from Contacts** to match against their device contacts automatically. Connected friends can see each other's reading stats, achievements, and wishlists.
+Once multiple people are using the app, they can connect via the profile icon → **Friends** → **Add Friend**. From there they can search by email address or tap **Share your Bookshelf link** to send a personalised friend-request URL via Messages, WhatsApp, AirDrop, or any other app. When the recipient opens the link they get a one-tap "Add as friend" prompt. Connected friends can see each other's reading stats, achievements, and wishlists.
 
 ---
 
@@ -405,8 +405,8 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 **Friend profile shows "Profile access was blocked"**
 → Your Firestore rules don't include the `profiles` collection. Paste the full ruleset from Step 2e above into Firebase Console → Firestore → Rules → Publish.
 
-**"Find Friends from Contacts" button doesn't appear**
-→ The Contact Picker API requires iOS Safari 14.5+ or Chrome on Android. It is not available on desktop browsers or Firefox. On unsupported browsers the app shows a message directing you to the email search instead.
+**"Share your Bookshelf link" doesn't open a share sheet on desktop**
+→ The Web Share API is only available on mobile browsers (iOS Safari, Chrome Android). On desktop the button copies the link to your clipboard instead — paste it into any message or email manually.
 
 **Friend profile shows "hasn't opened Bookshelf yet"**
 → The friend needs to open the app at least once after you both signed up. Their profile is written automatically on first login.
