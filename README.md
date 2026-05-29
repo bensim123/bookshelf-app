@@ -30,7 +30,7 @@ A personal book library tracker that runs entirely as a web app — no app store
 - **Multi-device sync** via Firebase Firestore
 - **Flexible sign-in** — Google, Microsoft (SSO), or email/password with a full sign-up flow; password reset by email
 - **Account management** — delete your account from the profile menu; 90-day soft-delete window lets you sign back in to restore everything before it's permanently removed
-- **Friends** — add friends by email; friend requests trigger an email notification to the recipient; view friends' library stats, achievements, and wishlists
+- **Friends** — find friends from your device contacts (iOS Safari 14.5+ / Chrome Android) or search by email; friend requests trigger an email notification to the recipient; view friends' library stats, achievements, and wishlists
 - **Buy links** — every wishlist book shows one-tap links to Amazon, Barnes & Noble, and Half Price Books
 
 ---
@@ -43,7 +43,7 @@ A personal book library tracker that runs entirely as a web app — no app store
 | JSX | Babel standalone (in-browser compilation) |
 | Auth | Firebase Authentication (Google, Microsoft, email/password) |
 | Storage | Firebase Firestore (per-user cloud document) |
-| Book data | Open Library API + Google Books API (no key required) |
+| Book data | Open Library API + Google Books API + Barnes & Noble (no key required) |
 | Barcode scanning | ZXing `@zxing/browser` via jsDelivr |
 | AI (series/suggestions) | Groq `llama-3.3-70b-versatile` via Cloudflare Worker proxy |
 | Email notifications | Resend (friend-request emails, free tier: 3,000/month) |
@@ -355,7 +355,7 @@ Multiple people can use the same deployment — each person signs in with their 
 
 **Using the Friends feature:**
 
-Once multiple people are using the app, they can connect by going to the profile icon → **Friends** → **Add Friend** and entering each other's email addresses. Connected friends can see each other's reading stats, achievements, and wishlists.
+Once multiple people are using the app, they can connect via the profile icon → **Friends** → **Add Friend**. From there they can search by email address or tap **Find Friends from Contacts** to match against their device contacts automatically. Connected friends can see each other's reading stats, achievements, and wishlists.
 
 ---
 
@@ -403,7 +403,10 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 → The `RESEND_API_KEY` secret may not be set in your Cloudflare Worker. Go to the worker dashboard → Settings → Variables → add `RESEND_API_KEY` (encrypted). Also make sure you've deployed the latest `worker.js`. The friend request itself is still saved in Firestore — email is a bonus notification only.
 
 **Friend profile shows "Profile access was blocked"**
-→ Your Firestore rules don't include the `profiles` collection. Paste the full four-collection ruleset from Step 2d above into Firebase Console → Firestore → Rules → Publish.
+→ Your Firestore rules don't include the `profiles` collection. Paste the full ruleset from Step 2e above into Firebase Console → Firestore → Rules → Publish.
+
+**"Find Friends from Contacts" button doesn't appear**
+→ The Contact Picker API requires iOS Safari 14.5+ or Chrome on Android. It is not available on desktop browsers or Firefox. On unsupported browsers the app shows a message directing you to the email search instead.
 
 **Friend profile shows "hasn't opened Bookshelf yet"**
 → The friend needs to open the app at least once after you both signed up. Their profile is written automatically on first login.
@@ -426,8 +429,8 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 **"Add to Home Screen" is greyed out**
 → Must use Safari on iOS. Chrome and Firefox do not support PWA install prompts on iOS.
 
-**Warning: "Library data is X KB — approaching Firestore's 1 MB limit"**
-→ Your library is large. Go to Settings → Export CSV to make a backup. The app automatically trims long book descriptions before saving to keep the document small, but very large libraries with extensive notes may eventually approach this limit.
+**"Add Friend" contact search finds someone but can't send a request**
+→ Check that the Firestore `friendRequests` collection rules are published (Step 2e). Also confirm the recipient hasn't deleted their account.
 
 ---
 
