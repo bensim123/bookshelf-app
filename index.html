@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v312';
+const CACHE='bookshelf-v313';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v312 ok');
+        console.log('SW v313 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -723,18 +723,21 @@ const OL_LANG = {
 };
 
 function enCover(i13,i10,cid) {
+  // cover_i is OL's curated work cover — more reliable than ISBN-based lookups which
+  // aggregate all editions and may return a non-English or placeholder image
+  if(cid) return `https://covers.openlibrary.org/b/id/${cid}-L.jpg`;
   if(i13) return `https://covers.openlibrary.org/b/isbn/${i13}-L.jpg`;
   if(i10) return `https://covers.openlibrary.org/b/isbn/${i10}-L.jpg`;
-  if(cid) return `https://covers.openlibrary.org/b/id/${cid}-L.jpg`;
   return null;
 }
 // Build an array of candidate cover URLs for a result (all ISBN variants + cover_i ids)
 function coverCandidates(doc) {
   const urls = [];
+  // cover_i first — it's the curated work cover and most likely to load successfully
+  if(doc.cover_i) urls.push(`https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`);
   const isbns = (doc.isbn || []);
   isbns.filter(i=>i.length===13).forEach(i=>urls.push(`https://covers.openlibrary.org/b/isbn/${i}-L.jpg`));
   isbns.filter(i=>i.length===10).forEach(i=>urls.push(`https://covers.openlibrary.org/b/isbn/${i}-L.jpg`));
-  (doc.cover_i ? [doc.cover_i] : []).forEach(id=>urls.push(`https://covers.openlibrary.org/b/id/${id}-L.jpg`));
   return [...new Set(urls)];
 }
 // Detect binding from OL physical_format string
@@ -933,6 +936,30 @@ async function _bnByISBN(isbn) {
   }catch{return null;}
 }
 
+// B&N text search via internal API — returns [] on CORS / timeout / error (silent fallback)
+async function _bnSearch(query) {
+  try{
+    const r=await fetch(`https://www.barnesandnoble.com/search/api/v1/product/search?store=BNTB&q=${encodeURIComponent(query)}&pageSize=10`,{signal:AbortSignal.timeout?AbortSignal.timeout(5000):undefined});
+    if(!r.ok)return [];
+    const d=await r.json();
+    return (d?.results||[]).filter(item=>item?.productDisplayName).map(item=>{
+      const cover=item.imageUrl?item.imageUrl.replace("http:","https:"):null;
+      const ean=item.ean||item.isbn||"";
+      return{id:ean||crypto.randomUUID(),title:item.productDisplayName,subtitle:"",
+        authors:(item.contributors?.map(c=>c.name)||[]).filter(Boolean),
+        cover,coverCandidates:cover?[cover]:[],genre:item.classificationName||"",
+        categories:item.classificationName?[item.classificationName]:[],
+        year:item.publicationDate?.slice(0,4)||"",publishedDate:item.publicationDate||"",
+        publisher:item.publisher||"",pages:item.pageCount?.toString()||"",
+        description:item.description||"",language:"en",isbn13:ean,isbn10:"",
+        averageRating:item.avgRating||0,ratingsCount:item.ratingCount||0,
+        previewLink:ean?`https://www.barnesandnoble.com/w/isbn/${ean}`:"",
+        status:"owned",rating:0,notes:"",addedAt:Date.now(),
+        bookFormat:"physical",bookBinding:"unknown",customShelves:[],readDates:[],highlights:[]};
+    });
+  }catch{return [];}
+}
+
 // Multi-source ISBN lookup: OL → OL(alt format) → Google Books → plain-text → B&N → AI bridge
 async function fetchByISBN(isbn) {
   isbn=isbn.replace(/[^0-9X]/gi,"").trim();
@@ -984,9 +1011,9 @@ function pLinks(book) {
   // Amazon: ISBN is most precise; fall back to title+author keywords
   const amazonQ=isbn?isbn:`${title} ${author}`.trim();
   const amazon=`https://www.amazon.com/s?k=${encodeURIComponent(amazonQ)}&i=stripbooks`;
-  // B&N: use ?q= query-string form — the /s/ path form with %20-encoded spaces causes 404s
+  // B&N: /s/ path with words joined by + — neither %20 nor ?q= forms work reliably
   const bnQ=isbn?isbn:`${title}${author?' '+author:''}`.trim();
-  const bn=`https://www.barnesandnoble.com/s?q=${encodeURIComponent(bnQ)}`;
+  const bn=`https://www.barnesandnoble.com/s/${encodeURIComponent(bnQ).replace(/%20/g,'+')}`;
   // HPB: always search by title — their inventory isn't indexed by ISBN reliably
   const hpb=`https://www.hpb.com/search?q=${encodeURIComponent(title)}`;
   return {amazon,bn,hpb};
@@ -1573,7 +1600,7 @@ function CoverPickerModal({book, onSelect, onClose}) {
     </div>
   );
 }
-function SearchPanel({onAdd,onAddWishlist}) {
+function SearchPanel({onAdd,onAddWishlist,onClose}) {
   const [q,setQ]=useState("");const [res,setRes]=useState([]);const [busy,setBusy]=useState(false);const [err,setErr]=useState("");
   const [coverPickFor,setCoverPickFor]=useState(null);
   const [pendingBook,setPendingBook]=useState(null);
@@ -1590,24 +1617,38 @@ function SearchPanel({onAdd,onAddWishlist}) {
         const b=await fetchByISBN(clean);
         if(b) books=[b];
       }
-      // If ISBN lookup found nothing (or query wasn't an ISBN), run text search too
+      // If ISBN lookup found nothing (or query wasn't an ISBN), run text search
       if(books.length===0){
         const textQ=isISBN?clean:query;
-        // No API-level language restrictions: OL's language=eng param returns wrong primary results
-        // (e.g. "Alas de ónix" for "Onyx Storm"); GB langRestrict=en fails for recently-published books.
-        // The hard post-filter below is the reliable layer for both APIs.
-        const olBooks=await olSearch(textQ,12,null);
         const gbQ=isISBN?encodeURIComponent(clean):encodeURIComponent(query);
-        const gbR=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).catch(()=>null);
-        const gbBooks=gbR?.ok?((await gbR.json()).items||[]).map(parseGoogleVolume).filter(Boolean):[];
-        // Fuzzy title match handles subtitle variants: "Onyx Storm" ↔ "Onyx Storm: Empyrean, Book 3"
+        // Run all three sources in parallel for speed; B&N silently returns [] on CORS/error
+        const [olBooks,gbData,bnBooks]=await Promise.all([
+          olSearch(textQ,12,null),
+          fetch(`https://www.googleapis.com/books/v1/volumes?q=${gbQ}&maxResults=12`).then(r=>r.ok?r.json():null).catch(()=>null),
+          isISBN?Promise.resolve([]):_bnSearch(query)
+        ]);
+        const gbBooks=(gbData?.items||[]).map(parseGoogleVolume).filter(Boolean);
+        // Fuzzy title match handles subtitle variants e.g. "Onyx Storm" ↔ "Onyx Storm: Empyrean, Book 3"
         const fuzz=(a,b)=>{const ta=a.toLowerCase().trim(),tb=b.toLowerCase().trim();return ta===tb||ta.startsWith(tb+':')||ta.startsWith(tb+',')||tb.startsWith(ta+':')||tb.startsWith(ta+',');};
-        // Override OL cover with GB cover when fuzzy-matched (OL aggregates all-language ISBNs so its
-        // first ISBN may be a non-English edition; GB returns the edition-specific cover)
-        const olMerged=!isISBN?olBooks.map(b=>{const gb=gbBooks.find(g=>fuzz(b.title,g.title));return(gb&&gb.cover)?{...b,cover:gb.cover}:b;}):olBooks;
-        // Dedup using fuzzy match so subtitle variants don't produce duplicate cards
-        const combined=[...olMerged,...gbBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title)))];
-        // Hard-filter non-English; fall back to unfiltered if nothing survives (allows intentional non-English searches)
+        // Enrich OL results: pull cover and authors from GB or BN when OL is missing them
+        // (OL's first ISBN may be a non-English edition with a foreign cover; GB/BN always return
+        // the English edition cover. OL sometimes lacks author data for newer books.)
+        const allExt=[...gbBooks,...bnBooks];
+        const olMerged=!isISBN?olBooks.map(b=>{
+          const ext=allExt.find(g=>fuzz(b.title,g.title));
+          if(!ext)return b;
+          const cover=ext.cover||b.cover;
+          const noAuthor=!b.authors?.length||b.authors[0]==="Unknown Author";
+          const authors=noAuthor&&ext.authors?.length?ext.authors:b.authors;
+          return{...b,cover,authors};
+        }):olBooks;
+        // Dedup: prefer OL (richest metadata), then GB, then BN
+        const combined=[
+          ...olMerged,
+          ...gbBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title))),
+          ...bnBooks.filter(b=>!olMerged.some(o=>fuzz(o.title,b.title))&&!gbBooks.some(g=>fuzz(g.title,b.title)))
+        ];
+        // Hard-filter non-English; fall back to unfiltered to allow intentional non-English searches
         if(!isISBN){const enOnly=combined.filter(b=>!b.language||b.language==='en');books=enOnly.length?enOnly:combined;}
         else books=combined;
       }
@@ -1621,6 +1662,10 @@ function SearchPanel({onAdd,onAddWishlist}) {
   }
   if(coverPickFor) return <CoverPickerModal book={coverPickFor} onSelect={url=>{const updated={...coverPickFor,cover:url};if(pendingBook){if(pendingMode==="wishlist"&&onAddWishlist)onAddWishlist(updated);else onAdd(updated);}else{setRes(r=>r.map(b=>b.id===coverPickFor.id?{...b,cover:url}:b));} setCoverPickFor(null);setPendingBook(null);setPendingMode("owned");}} onClose={()=>{setCoverPickFor(null);setPendingBook(null);setPendingMode("owned");}}/>;
   return <div>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+      <span style={{fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:12,color:P.muted,textTransform:"uppercase",letterSpacing:.6}}>Search Books</span>
+      {onClose&&<button onClick={onClose} title="Close search" aria-label="Close search" style={{background:"none",border:"none",color:P.muted,cursor:"pointer",fontSize:22,lineHeight:1,padding:"2px 8px",borderRadius:8,fontFamily:"sans-serif"}}>✕</button>}
+    </div>
     <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
     {err&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.6}}>{err}</div>}
     {busy&&<div style={{textAlign:"center",padding:"24px 0",color:P.muted,fontFamily:"'Nunito',sans-serif"}}>Searching…</div>}
@@ -1761,7 +1806,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.12";
+const APP_VERSION="3.13";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -1824,7 +1869,7 @@ function AddModal({onAdd,onClose,books,onAddWishlist}) {
       ))}
     </div>
     {msg&&<div style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12,lineHeight:1.7}}>{msg}</div>}
-    {mode==="search"&&<SearchPanel onAdd={onAdd} onAddWishlist={onAddWishlist}/>}
+    {mode==="search"&&<SearchPanel onAdd={onAdd} onAddWishlist={onAddWishlist} onClose={()=>setMode(null)}/>}
     {!mode&&<div style={{textAlign:"center",padding:"16px 0 8px",color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:13}}>Choose a method above, or type to search</div>}
   </div>;
 }
