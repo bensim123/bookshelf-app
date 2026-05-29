@@ -8,7 +8,7 @@ A personal book library tracker that runs entirely as a web app — no app store
 
 ## Features
 
-- **Add books** via barcode scan (camera) or title/author/ISBN search — search results show **+** to add to Library and **💜** to add to Wishlist
+- **Add books** via barcode scan (camera) or title/author/ISBN search — results pull from Open Library, Google Books, and Barnes & Noble; search results show **+** to add to Library and **💜** to add to Wishlist
 - **Track status** — Owned, Reading, Read, DNF, Wishlist
 - **Reading progress** — page numbers for physical/ebook, minutes for audiobooks
 - **Auto-saving detail view** — changes to any field save automatically; no Save button required
@@ -28,7 +28,8 @@ A personal book library tracker that runs entirely as a web app — no app store
 - **Dark and light themes** — persists across sessions
 - **Works offline** after first load (service worker caching)
 - **Multi-device sync** via Firebase Firestore
-- **Google Sign-In** — one tap login, no password
+- **Flexible sign-in** — Google, Microsoft (SSO), or email/password with a full sign-up flow; password reset by email
+- **Account management** — delete your account from the profile menu; 90-day soft-delete window lets you sign back in to restore everything before it's permanently removed
 - **Friends** — add friends by email; friend requests trigger an email notification to the recipient; view friends' library stats, achievements, and wishlists
 - **Buy links** — every wishlist book shows one-tap links to Amazon, Barnes & Noble, and Half Price Books
 
@@ -40,7 +41,7 @@ A personal book library tracker that runs entirely as a web app — no app store
 |-------|--------|
 | Framework | React 18 (UMD via CDN — no build step) |
 | JSX | Babel standalone (in-browser compilation) |
-| Auth | Firebase Authentication (Google Sign-In) |
+| Auth | Firebase Authentication (Google, Microsoft, email/password) |
 | Storage | Firebase Firestore (per-user cloud document) |
 | Book data | Open Library API + Google Books API (no key required) |
 | Barcode scanning | ZXing `@zxing/browser` via jsDelivr |
@@ -55,7 +56,7 @@ Everything ships in a single `index.html` — no build pipeline, no npm, no node
 
 ## Setting Up Your Own Copy
 
-There are **four external services** to configure: Firebase (auth + database), a Cloudflare Worker (AI + email proxy), Groq (AI), Resend (email), and GitHub Pages (hosting). All have free tiers that are more than sufficient for personal use.
+There are **five external services** to configure: Firebase (auth + database), Groq (AI), Resend (email), a Cloudflare Worker (proxy for Groq and Resend), and GitHub Pages (hosting). All have free tiers that are more than sufficient for personal use.
 
 **Overview of what you'll do:**
 1. Fork this repo
@@ -80,7 +81,7 @@ There are **four external services** to configure: Firebase (auth + database), a
 
 ### Step 2 — Firebase Setup
 
-Firebase provides Google Sign-In and the cloud database. It's free for personal use (Spark plan).
+Firebase provides sign-in and the cloud database. It's free for personal use (Spark plan).
 
 #### 2a. Create a Firebase project
 
@@ -89,20 +90,42 @@ Firebase provides Google Sign-In and the cloud database. It's free for personal 
 3. Name it anything (e.g. `my-bookshelf`)
 4. Disable Google Analytics (not needed) → **Create project**
 
-#### 2b. Enable Google Sign-In
+#### 2b. Enable sign-in providers
 
-1. In the left sidebar, click **Authentication**
-2. Click **Get started**
-3. Under **Sign-in method**, click **Google** → toggle **Enable** → **Save**
+1. In the left sidebar, click **Authentication** → **Get started**
+2. Under **Sign-in method**, enable the providers you want:
 
-#### 2c. Create the Firestore database
+   **Google** (recommended — one-tap sign-in)
+   - Click **Google** → toggle **Enable** → add a support email → **Save**
+
+   **Email/Password** (lets users create an account with a password)
+   - Click **Email/Password** → toggle **Enable** on the first option → **Save**
+   - Leave the "Email link (passwordless)" second toggle off
+
+   **Microsoft** (optional — for Outlook/Microsoft account sign-in)
+   - Requires an Azure App Registration — see step 2c
+
+#### 2c. (Optional) Set up Microsoft sign-in
+
+Skip this step if you only want Google and email/password.
+
+1. Go to [portal.azure.com](https://portal.azure.com) → search **App registrations** → **New registration**
+   - Supported account types: **Accounts in any organizational directory and personal Microsoft accounts**
+   - Redirect URI: leave blank for now → **Register**
+2. Copy the **Application (client) ID**
+3. Go to **Certificates & secrets** → **New client secret** → **Add** → copy the **Value**
+4. In Firebase Console → Authentication → Sign-in method → **Microsoft** → **Enable** → paste Client ID and Client Secret
+5. Copy the **OAuth redirect URI** Firebase shows you (looks like `https://your-project.firebaseapp.com/__/auth/handler`)
+6. Back in Azure → your app → **Authentication** → **Add a platform → Web** → paste the redirect URI → **Configure** → **Save**
+
+#### 2d. Create the Firestore database
 
 1. In the left sidebar, click **Firestore Database**
 2. Click **Create database**
 3. Choose **Start in production mode** → **Next**
 4. Pick any region (closest to you) → **Enable**
 
-#### 2d. Set Firestore security rules
+#### 2e. Set Firestore security rules
 
 1. In Firestore, click the **Rules** tab
 2. Replace the entire contents with the following and click **Publish**:
@@ -162,7 +185,7 @@ service cloud.firestore {
 }
 ```
 
-#### 2e. Get your Firebase config
+#### 2f. Get your Firebase config
 
 1. In the Firebase console, click the **gear icon** → **Project settings**
 2. Scroll down to **Your apps** → click **Add app** → choose the **Web** icon (`</>`)
@@ -179,7 +202,7 @@ service cloud.firestore {
    };
    ```
 
-#### 2f. Paste the config into index.html
+#### 2g. Paste the config into index.html
 
 Open `index.html` and find this block near the top of the `<script type="text/babel">` section (around line 203):
 
@@ -194,7 +217,7 @@ const FIREBASE_CONFIG = {
 };
 ```
 
-Replace those values with the ones you copied in step 2e.
+Replace those values with the ones you copied in step 2f.
 
 ---
 
@@ -280,7 +303,7 @@ Replace the URL with the one you copied in step 3c.
 
 ### Step 5 — Authorize your domain in Firebase
 
-Google Sign-In will refuse to work on a domain Firebase doesn't know about.
+Firebase will refuse sign-in attempts from any domain it doesn't know about.
 
 1. Back in the Firebase console, go to **Authentication** → **Settings** → **Authorized domains**
 2. Click **Add domain**
@@ -297,7 +320,7 @@ That's it — your app is fully configured and live.
 python3 -m http.server 3000
 ```
 
-Open `http://localhost:3000`. The app needs a network connection for Google Sign-In on first use. `localhost:3000` is already in the worker's `ALLOWED_ORIGINS` and Firebase's authorized domains list by default.
+Open `http://localhost:3000`. The app needs a network connection for sign-in on first use. `localhost:3000` is already in the worker's `ALLOWED_ORIGINS` and Firebase's authorized domains list by default.
 
 If you changed the port, add it to both places.
 
@@ -305,12 +328,12 @@ If you changed the port, add it to both places.
 
 ## Sharing with Friends & Family
 
-Multiple people can use the same deployment — each person signs in with their own Google account and gets a completely separate, private library. No extra setup is required for them beyond having a Google account.
+Multiple people can use the same deployment — each person signs in with their own account and gets a completely separate, private library.
 
 **What each new person needs to do:**
 
 1. Open your GitHub Pages URL in Safari on their phone (or any browser on desktop)
-2. Tap **Sign in with Google** and use their own Google account
+2. Sign in with Google, Microsoft, or create an email/password account
 3. Their library is created automatically — it's private to them
 
 **What you need to do when adding someone new:**
@@ -358,6 +381,15 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 **Sign-in does nothing / "auth/unauthorized-domain" error**
 → Your hosting domain isn't in Firebase's list. Go to Firebase Console → Authentication → Settings → Authorized domains → Add domain.
 
+**"Create Account" button does nothing or shows an error**
+→ Make sure Email/Password is enabled in Firebase Console → Authentication → Sign-in method → Email/Password → Enable (first toggle only).
+
+**Forgot password email never arrives**
+→ Check spam/junk. The reset email comes from Firebase's no-reply address. Also confirm Email/Password is enabled in Firebase Console.
+
+**Account deletion doesn't complete / "requires-recent-login" error**
+→ This shouldn't occur in normal use since deletion is confirmed immediately after sign-in. If it does, sign out and sign back in, then delete your account again.
+
 **AI features show "failed" or nothing**
 → Check that `AI_PROXY_URL` in `index.html` matches your worker URL exactly, including the trailing slash. Also verify the `GROQ_API_KEY` secret is set in the worker. Check the worker's **Logs** tab in the Cloudflare dashboard for errors.
 
@@ -383,7 +415,7 @@ Edit `index.html` and push to `main`. GitHub Pages redeploys automatically withi
 → They need to have signed into the app at least once so their email is registered. Ask them to open the app and sign in, then try the search again.
 
 **Data doesn't sync across devices**
-→ Make sure you're signed in with the same Google account on both devices.
+→ Make sure you're signed in with the same account on both devices. If you used Google on one device and Microsoft on another with the same email, those are separate accounts — pick one and stick with it.
 
 **Camera doesn't work for barcode scanning**
 → iOS will ask for camera permission the first time you tap Scan — tap Allow. Camera access requires HTTPS, which GitHub Pages provides automatically.
