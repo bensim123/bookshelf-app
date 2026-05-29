@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v315';
+const CACHE='bookshelf-v316';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v315 ok');
+        console.log('SW v316 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1806,7 +1806,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.15";
+const APP_VERSION="3.16";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -4085,53 +4085,121 @@ function LoadingScreen() {
 }
 
 function AuthScreen({ dbError }) {
-  const [busy,setBusy] = useState(null); // null | 'google' | 'microsoft' | 'facebook'
-  const [err,setErr]   = useState(null);
+  const [mode,setMode]         = useState('signin'); // 'signin' | 'signup' | 'reset'
+  const [email,setEmail]       = useState('');
+  const [name,setName]         = useState('');
+  const [pw,setPw]             = useState('');
+  const [pw2,setPw2]           = useState('');
+  const [showPw,setShowPw]     = useState(false);
+  const [busy,setBusy]         = useState(null);
+  const [err,setErr]           = useState(null);
+  const [resetSent,setResetSent] = useState(false);
 
-  async function signIn(providerName) {
+  const PW_REQS = [
+    {label:'At least 8 characters',    ok:p=>p.length>=8},
+    {label:'One uppercase letter',      ok:p=>/[A-Z]/.test(p)},
+    {label:'One lowercase letter',      ok:p=>/[a-z]/.test(p)},
+    {label:'One number',                ok:p=>/\d/.test(p)},
+    {label:'One special character',     ok:p=>/[^A-Za-z0-9]/.test(p)},
+  ];
+  const pwValid = PW_REQS.every(r=>r.ok(pw));
+
+  // ── SSO sign-in ────────────────────────────────────────────────────────────
+  async function signInSSO(providerName) {
     setBusy(providerName); setErr(null);
     try {
       let provider;
-      if (providerName === 'google') {
-        provider = new firebase.auth.GoogleAuthProvider();
-      } else if (providerName === 'microsoft') {
-        provider = new firebase.auth.OAuthProvider('microsoft.com');
-        provider.setCustomParameters({ prompt: 'select_account' });
-      } else if (providerName === 'facebook') {
-        provider = new firebase.auth.FacebookAuthProvider();
-      }
+      if      (providerName==='google')    { provider=new firebase.auth.GoogleAuthProvider(); }
+      else if (providerName==='microsoft') { provider=new firebase.auth.OAuthProvider('microsoft.com'); provider.setCustomParameters({prompt:'select_account'}); }
+      else if (providerName==='facebook')  { provider=new firebase.auth.FacebookAuthProvider(); }
       await firebase.auth().signInWithPopup(provider);
     } catch(e) {
-      if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') {
-        // user dismissed — no error message needed
-      } else if (e.code === 'auth/account-exists-with-different-credential') {
-        setErr("An account already exists with this email using a different sign-in method. Try signing in with Google, Microsoft, or Facebook — whichever you used first.");
-      } else {
-        setErr("Sign-in failed — please try again.");
-      }
+      if (e.code==='auth/popup-closed-by-user'||e.code==='auth/cancelled-popup-request') { /* dismissed */ }
+      else if (e.code==='auth/account-exists-with-different-credential')
+        setErr("An account with this email already exists using a different sign-in method. Try Google, Microsoft, or Facebook — whichever you used first.");
+      else setErr("Sign-in failed — please try again.");
       setBusy(null);
     }
   }
 
+  // ── Email/password sign-in ─────────────────────────────────────────────────
+  async function signInEmail() {
+    if (!email.trim()||!pw) return;
+    setBusy('email'); setErr(null);
+    try {
+      await firebase.auth().signInWithEmailAndPassword(email.trim(), pw);
+    } catch(e) {
+      if (e.code==='auth/invalid-credential'||e.code==='auth/wrong-password'||e.code==='auth/user-not-found')
+        setErr("Incorrect email or password.");
+      else if (e.code==='auth/too-many-requests')
+        setErr("Too many failed attempts — wait a moment or reset your password.");
+      else if (e.code==='auth/invalid-email')
+        setErr("Please enter a valid email address.");
+      else setErr("Sign-in failed — please try again.");
+      setBusy(null);
+    }
+  }
+
+  // ── Create account ─────────────────────────────────────────────────────────
+  async function signUpEmail() {
+    if (!email.trim()||!pw) return;
+    if (!pwValid)      { setErr("Password doesn't meet all the requirements below."); return; }
+    if (pw!==pw2)      { setErr("Passwords don't match."); return; }
+    setBusy('email'); setErr(null);
+    try {
+      const cred = await firebase.auth().createUserWithEmailAndPassword(email.trim(), pw);
+      // Set display name so the app and friend requests show a real name instead of null
+      const displayName = name.trim() || email.trim().split('@')[0];
+      await cred.user.updateProfile({ displayName });
+    } catch(e) {
+      if (e.code==='auth/email-already-in-use')
+        setErr("An account with this email already exists. Try signing in instead.");
+      else if (e.code==='auth/invalid-email')
+        setErr("Please enter a valid email address.");
+      else if (e.code==='auth/weak-password')
+        setErr("Password is too weak — please choose a stronger one.");
+      else setErr("Account creation failed — please try again.");
+      setBusy(null);
+    }
+  }
+
+  // ── Password reset ─────────────────────────────────────────────────────────
+  async function sendReset() {
+    if (!email.trim()) { setErr("Enter your email address first."); return; }
+    setBusy('reset'); setErr(null);
+    try {
+      await firebase.auth().sendPasswordResetEmail(email.trim());
+      setResetSent(true);
+    } catch(e) {
+      // Don't reveal whether the email exists — just show success either way
+      if (e.code==='auth/user-not-found'||e.code==='auth/invalid-email') setResetSent(true);
+      else setErr("Couldn't send reset email — please try again.");
+      setBusy(null);
+    }
+  }
+
+  function switchMode(m) { setMode(m); setErr(null); setResetSent(false); setPw(''); setPw2(''); setShowPw(false); }
+
   const dbMsg = dbError
-    ? (dbError.includes('permission') || dbError.includes('PERMISSION')
+    ? (dbError.includes('permission')||dbError.includes('PERMISSION')
         ? "Database access denied — Firestore rules not set up yet."
-        : dbError.includes('not-found') || dbError.includes('unavailable')
+        : dbError.includes('not-found')||dbError.includes('unavailable')
           ? "Database not found — Firestore may not be enabled yet."
           : `Database error: ${dbError}`)
     : null;
 
-  const btnBase = {width:"100%",padding:"14px 20px",borderRadius:14,border:"none",fontWeight:800,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'Nunito',sans-serif",transition:"opacity .15s",marginBottom:10};
+  const btnBase  = {width:"100%",padding:"14px 20px",borderRadius:14,border:"none",fontWeight:800,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'Nunito',sans-serif",transition:"opacity .15s",marginBottom:10};
+  const inputSt  = {width:"100%",padding:"12px 14px",borderRadius:12,border:`1.5px solid ${DARK.border}`,background:"rgba(255,255,255,.05)",color:DARK.text,fontFamily:"'Nunito',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:10};
 
   return (
-    <div style={{minHeight:"100vh",background:DARK.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'Nunito',sans-serif"}}>
-      <div style={{background:DARK.bgCard,border:`1px solid ${DARK.border}`,borderRadius:24,padding:"40px 32px",maxWidth:380,width:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,.6)"}}>
-        <div style={{fontSize:52,marginBottom:16}}>📚</div>
-        <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:34,fontWeight:900,color:DARK.text,margin:"0 0 10px",letterSpacing:-.5}}>Bookshelf</h1>
-        <p style={{fontSize:14,color:DARK.muted,lineHeight:1.6,marginBottom:32}}>Your personal reading library.<br/>Sign in to access your books on any device.</p>
+    <div style={{minHeight:"100vh",background:DARK.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 16px",fontFamily:"'Nunito',sans-serif"}}>
+      <div style={{background:DARK.bgCard,border:`1px solid ${DARK.border}`,borderRadius:24,padding:"36px 28px",maxWidth:400,width:"100%",textAlign:"center",boxShadow:"0 24px 80px rgba(0,0,0,.6)"}}>
+        <div style={{fontSize:48,marginBottom:12}}>📚</div>
+        <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:32,fontWeight:900,color:DARK.text,margin:"0 0 8px",letterSpacing:-.5}}>Bookshelf</h1>
+        <p style={{fontSize:13,color:DARK.muted,lineHeight:1.6,marginBottom:24}}>Your personal reading library.<br/>Sign in to access your books on any device.</p>
 
-        {/* Google */}
-        <button onClick={()=>signIn('google')} disabled={!!busy}
+        {/* ── SSO buttons ── */}
+        <button onClick={()=>signInSSO('google')} disabled={!!busy}
           style={{...btnBase,background:busy==='google'?"rgba(99,102,241,.4)":DARK.accent,color:"#fff",opacity:busy&&busy!=='google'?.5:1}}>
           <svg width="18" height="18" viewBox="0 0 18 18" style={{flexShrink:0}}>
             <path fill="#fff" d="M9 3.48c1.69 0 2.83.73 3.48 1.34l2.54-2.48C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.91 2.26C4.6 5.05 6.62 3.48 9 3.48z"/>
@@ -4139,32 +4207,118 @@ function AuthScreen({ dbError }) {
             <path fill="#fff" d="M3.88 10.78A5.54 5.54 0 0 1 3.58 9c0-.62.11-1.22.29-1.78L.96 4.96A9.008 9.008 0 0 0 0 9c0 1.45.35 2.82.96 4.04l2.92-2.26z"/>
             <path fill="#fff" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.84-2.2c-.76.53-1.78.9-3.12.9-2.38 0-4.4-1.57-5.12-3.74L.97 13.04C2.45 15.98 5.48 18 9 18z"/>
           </svg>
-          {busy==='google' ? "Signing in…" : "Sign in with Google"}
+          {busy==='google'?"Signing in…":"Continue with Google"}
         </button>
-
-        {/* Microsoft */}
-        <button onClick={()=>signIn('microsoft')} disabled={!!busy}
-          style={{...btnBase,background:busy==='microsoft'?"rgba(255,255,255,.08)":"rgba(255,255,255,.07)",color:DARK.text,border:`1.5px solid ${DARK.border}`,opacity:busy&&busy!=='microsoft'?.5:1}}>
+        <button onClick={()=>signInSSO('microsoft')} disabled={!!busy}
+          style={{...btnBase,background:"rgba(255,255,255,.07)",color:DARK.text,border:`1.5px solid ${DARK.border}`,opacity:busy&&busy!=='microsoft'?.5:1}}>
           <svg width="18" height="18" viewBox="0 0 21 21" style={{flexShrink:0}}>
-            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+            <rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
           </svg>
-          {busy==='microsoft' ? "Signing in…" : "Sign in with Microsoft"}
+          {busy==='microsoft'?"Signing in…":"Continue with Microsoft"}
         </button>
-
-        {/* Facebook */}
-        <button onClick={()=>signIn('facebook')} disabled={!!busy}
-          style={{...btnBase,background:busy==='facebook'?"rgba(24,119,242,.4)":"#1877f2",color:"#fff",marginBottom:0,opacity:busy&&busy!=='facebook'?.5:1}}>
+        <button onClick={()=>signInSSO('facebook')} disabled={!!busy}
+          style={{...btnBase,background:"#1877f2",color:"#fff",marginBottom:0,opacity:busy&&busy!=='facebook'?.5:1}}>
           <svg width="18" height="18" viewBox="0 0 24 24" style={{flexShrink:0}}>
             <path fill="#fff" d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.268h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/>
           </svg>
-          {busy==='facebook' ? "Signing in…" : "Sign in with Facebook"}
+          {busy==='facebook'?"Signing in…":"Continue with Facebook"}
         </button>
 
-        {dbMsg && <p style={{fontSize:13,color:"#ef4444",marginTop:16,lineHeight:1.5}}>{dbMsg}<br/><span style={{opacity:.7}}>Check the browser console for details.</span></p>}
-        {err && <p style={{fontSize:13,color:"#ef4444",marginTop:16,lineHeight:1.5}}>{err}</p>}
+        {/* ── Divider ── */}
+        <div style={{display:"flex",alignItems:"center",gap:10,margin:"18px 0 16px"}}>
+          <div style={{flex:1,height:1,background:DARK.border}}/><span style={{fontSize:11,color:DARK.muted,fontWeight:800,letterSpacing:.5}}>OR</span><div style={{flex:1,height:1,background:DARK.border}}/>
+        </div>
+
+        {/* ── Mode tabs (not shown on reset screen) ── */}
+        {mode!=='reset'&&<div style={{display:"flex",background:DARK.bgSurface,borderRadius:12,padding:3,marginBottom:18,border:`1px solid ${DARK.border}`}}>
+          {[['signin','Sign In'],['signup','Create Account']].map(([m,l])=>(
+            <button key={m} onClick={()=>switchMode(m)}
+              style={{flex:1,background:mode===m?DARK.accent:"transparent",border:"none",borderRadius:9,padding:"8px 0",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,color:mode===m?"#fff":DARK.muted,cursor:"pointer",transition:"all .15s"}}>
+              {l}
+            </button>
+          ))}
+        </div>}
+
+        {/* ── Reset: success state ── */}
+        {mode==='reset'&&resetSent&&<div style={{background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.3)",borderRadius:12,padding:"14px 16px",marginBottom:16,textAlign:"left"}}>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:"#22c55e",fontWeight:800,marginBottom:4}}>✓ Reset email sent</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:DARK.textLt,lineHeight:1.5}}>Check your inbox (and spam folder) for the password reset link.</div>
+        </div>}
+
+        {/* ── Fields ── */}
+        {(mode!=='reset'||!resetSent)&&<>
+          {/* Name field — signup only */}
+          {mode==='signup'&&<input value={name} onChange={e=>setName(e.target.value)}
+            type="text" placeholder="Your name (shown to friends)" autoComplete="name"
+            style={{...inputSt,textAlign:"left"}}/>}
+
+          {/* Email */}
+          <input value={email} onChange={e=>setEmail(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter'){if(mode==='signin')signInEmail();else if(mode==='signup')signUpEmail();else sendReset();}}}
+            type="email" placeholder="Email address" autoComplete="email"
+            style={{...inputSt,textAlign:"left"}}/>
+
+          {/* Password */}
+          {mode!=='reset'&&<div style={{position:"relative",marginBottom:10}}>
+            <input value={pw} onChange={e=>setPw(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter'&&mode==='signin')signInEmail();}}
+              type={showPw?"text":"password"} placeholder="Password"
+              autoComplete={mode==='signup'?"new-password":"current-password"}
+              style={{...inputSt,marginBottom:0,paddingRight:44,textAlign:"left"}}/>
+            <button onClick={()=>setShowPw(v=>!v)} tabIndex={-1}
+              style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:DARK.muted,fontSize:15,padding:"4px",lineHeight:1}}>
+              {showPw?"🙈":"👁"}
+            </button>
+          </div>}
+
+          {/* Password requirements checklist — signup, while typing */}
+          {mode==='signup'&&pw&&<div style={{background:"rgba(255,255,255,.03)",border:`1px solid ${DARK.border}`,borderRadius:10,padding:"10px 12px",marginBottom:10,textAlign:"left"}}>
+            {PW_REQS.map(r=>(
+              <div key={r.label} style={{display:"flex",alignItems:"center",gap:7,marginBottom:2}}>
+                <span style={{fontSize:11,color:r.ok(pw)?"#22c55e":"#ef4444",fontWeight:800,flexShrink:0,width:12}}>{r.ok(pw)?"✓":"✗"}</span>
+                <span style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:r.ok(pw)?DARK.textLt:DARK.muted}}>{r.label}</span>
+              </div>
+            ))}
+          </div>}
+
+          {/* Confirm password — signup */}
+          {mode==='signup'&&<input value={pw2} onChange={e=>setPw2(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter')signUpEmail();}}
+            type={showPw?"text":"password"} placeholder="Confirm password" autoComplete="new-password"
+            style={{...inputSt,borderColor:pw2&&pw!==pw2?"#ef4444":DARK.border,textAlign:"left"}}/>}
+
+          {/* Forgot password link — signin only */}
+          {mode==='signin'&&<div style={{textAlign:"right",marginTop:-4,marginBottom:12}}>
+            <button onClick={()=>switchMode('reset')}
+              style={{background:"none",border:"none",color:DARK.accent,fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer",padding:0}}>
+              Forgot password?
+            </button>
+          </div>}
+
+          {/* Primary CTA */}
+          {mode==='signin'&&<button onClick={signInEmail} disabled={!!busy||!email.trim()||!pw}
+            style={{...btnBase,background:DARK.accent,color:"#fff",marginBottom:0,opacity:(!!busy||!email.trim()||!pw)?.5:1}}>
+            {busy==='email'?"Signing in…":"Sign In"}
+          </button>}
+          {mode==='signup'&&<button onClick={signUpEmail} disabled={!!busy||!email.trim()||!pwValid||pw!==pw2}
+            style={{...btnBase,background:DARK.accent,color:"#fff",marginBottom:0,opacity:(!!busy||!email.trim()||!pwValid||pw!==pw2)?.5:1}}>
+            {busy==='email'?"Creating account…":"Create Account"}
+          </button>}
+          {mode==='reset'&&<button onClick={sendReset} disabled={!!busy||!email.trim()}
+            style={{...btnBase,background:DARK.accent,color:"#fff",marginBottom:0,opacity:(!!busy||!email.trim())?.5:1}}>
+            {busy==='reset'?"Sending…":"Send Reset Email"}
+          </button>}
+        </>}
+
+        {/* Back link on reset screen */}
+        {mode==='reset'&&<button onClick={()=>switchMode('signin')}
+          style={{background:"none",border:"none",color:DARK.muted,fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer",marginTop:14,padding:0}}>
+          ← Back to sign in
+        </button>}
+
+        {dbMsg&&<p style={{fontSize:13,color:"#ef4444",marginTop:14,lineHeight:1.5}}>{dbMsg}<br/><span style={{opacity:.7}}>Check the browser console for details.</span></p>}
+        {err&&<p style={{fontSize:13,color:"#ef4444",marginTop:10,lineHeight:1.5}}>{err}</p>}
       </div>
     </div>
   );
