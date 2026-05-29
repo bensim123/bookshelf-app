@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v321';
+const CACHE='bookshelf-v322';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v321 ok');
+        console.log('SW v322 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1874,7 +1874,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.21";
+const APP_VERSION="3.22";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -3912,6 +3912,184 @@ function FriendProfileSheet({ friendUid, friendName, myEarnedAchs=[], onClose })
   );
 }
 
+// ─── Contact Picker friend-finder ─────────────────────────────────────────────
+// Uses the Contact Picker API (iOS Safari 14.5+, Chrome Android) to let the
+// user pick contacts, then checks each email against Firestore's emailToUid
+// index.  Matched contacts get an Add button; unmatched contacts get an Invite
+// link that opens a pre-filled SMS or email.
+function ContactFriendFinder({ user, friends, onRequestSent }) {
+  const [phase,setPhase]=useState('idle'); // idle|picking|matching|results|unsupported
+  const [onApp,setOnApp]=useState([]);   // [{name,email,uid,displayName,alreadyFriend,sending,sent}]
+  const [offApp,setOffApp]=useState([]); // [{name,email,tel}]
+
+  const supported='contacts' in navigator && 'ContactsManager' in window;
+
+  async function pick() {
+    if(!supported){setPhase('unsupported');return;}
+    setPhase('picking');
+    try {
+      const selected=await navigator.contacts.select(['name','email','tel'],{multiple:true});
+      if(!selected||!selected.length){setPhase('idle');return;}
+      setPhase('matching');
+      await match(selected);
+    } catch {setPhase('idle');} // user dismissed picker
+  }
+
+  async function match(contactList) {
+    const db=firebase.firestore();
+    // Flatten: one entry per unique (contact, email) pair
+    const pairs=[];
+    const seenEmails=new Set();
+    for(const c of contactList){
+      const name=(c.name||[])[0]||'';
+      const tel=(c.tel||[])[0]||'';
+      for(const raw of (c.email||[])){
+        const e=raw.trim().toLowerCase();
+        if(!e||seenEmails.has(e))continue;
+        seenEmails.add(e);
+        pairs.push({name,email:e,tel});
+      }
+      // Contact has no email — add for invite-only via SMS
+      if(!(c.email||[]).length&&tel) pairs.push({name,email:'',tel});
+    }
+    // Batch all emailToUid lookups in parallel
+    const results=await Promise.all(pairs.map(async p=>{
+      if(!p.email)return{...p,uid:null,displayName:''};
+      try{
+        const snap=await db.doc(`emailToUid/${encodeEmail(p.email)}`).get();
+        if(!snap.exists)return{...p,uid:null,displayName:''};
+        const uid=snap.data().uid;
+        if(uid===user.uid)return null; // skip self
+        const prof=await db.doc(`profiles/${uid}`).get();
+        const displayName=prof.exists?prof.data().displayName||p.name:p.name;
+        return{...p,uid,displayName};
+      }catch{return{...p,uid:null,displayName:''};}}));
+    const valid=results.filter(Boolean);
+    const found=[],notFound=[];
+    const seenUids=new Set();
+    for(const r of valid){
+      if(r.uid&&!seenUids.has(r.uid)){
+        seenUids.add(r.uid);
+        found.push({...r,alreadyFriend:friends.some(f=>f.uid===r.uid),sending:false,sent:false});
+      } else if(!r.uid&&(r.email||r.tel)){
+        notFound.push(r);
+      }
+    }
+    setOnApp(found); setOffApp(notFound); setPhase('results');
+  }
+
+  async function sendRequest(r) {
+    setOnApp(prev=>prev.map(m=>m.uid===r.uid?{...m,sending:true}:m));
+    try{
+      const fromName=user.displayName||user.email.split('@')[0];
+      await firebase.firestore().collection('friendRequests').add({
+        fromUid:user.uid,fromDisplayName:fromName,fromPhotoURL:user.photoURL||null,
+        fromEmail:user.email,toUid:r.uid,status:'pending',
+        sentAt:firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      fetch(AI_PROXY_URL,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'notify',to:r.email,fromName})}).catch(()=>{});
+      setOnApp(prev=>prev.map(m=>m.uid===r.uid?{...m,sending:false,sent:true}:m));
+      onRequestSent();
+    }catch{setOnApp(prev=>prev.map(m=>m.uid===r.uid?{...m,sending:false}:m));}
+  }
+
+  function invite(c) {
+    const appUrl=window.location.href.split('?')[0].replace(/#.*/,'');
+    const fromName=user.displayName||user.email.split('@')[0];
+    const body=`Hi ${c.name||'there'}! I track my reading on Bookshelf — join me: ${appUrl}`;
+    if(c.email) window.open(`mailto:${encodeURIComponent(c.email)}?subject=${encodeURIComponent(fromName+' invited you to Bookshelf 📚')}&body=${encodeURIComponent(body)}`);
+    else if(c.tel) window.open(`sms:${encodeURIComponent(c.tel)}?body=${encodeURIComponent(body)}`);
+  }
+
+  const avatar=(label,color)=>(
+    <div style={{width:36,height:36,borderRadius:18,background:color||P.accent,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0,color:'#fff',fontWeight:700,fontFamily:"'Nunito',sans-serif"}}>
+      {(label||'?')[0].toUpperCase()}
+    </div>
+  );
+
+  const sectionLabel=(txt)=>(
+    <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,color:P.muted,textTransform:'uppercase',letterSpacing:.5,marginBottom:8,marginTop:14}}>{txt}</div>
+  );
+
+  if(phase==='idle') return (
+    <button onClick={pick}
+      style={{width:'100%',padding:'12px',borderRadius:12,background:P.bgSurface,border:`1.5px solid ${P.border}`,color:P.text,fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,marginBottom:14}}>
+      📱 Find Friends from Contacts
+    </button>
+  );
+
+  if(phase==='unsupported') return (
+    <div style={{background:P.bgSurface,borderRadius:12,padding:'12px 14px',border:`1px solid ${P.border}`,marginBottom:14}}>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,marginBottom:4}}>Contacts not available</div>
+      <p style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,margin:0,lineHeight:1.5}}>Contact access requires iOS Safari 14.5+ or Chrome on Android. Use the email search below instead.</p>
+    </div>
+  );
+
+  if(phase==='picking'||phase==='matching') return (
+    <div style={{textAlign:'center',padding:'18px 0',marginBottom:14}}>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted}}>
+        {phase==='picking'?'Opening contacts…':'Checking for Bookshelf users…'}
+      </div>
+    </div>
+  );
+
+  // results
+  return (
+    <div style={{marginBottom:14}}>
+      {onApp.length>0&&<>
+        {sectionLabel(`On Bookshelf (${onApp.length})`)}
+        {onApp.map(r=>(
+          <div key={r.uid} style={{background:P.bgSurface,borderRadius:12,padding:'11px 12px',border:`1px solid ${P.border}`,display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+            {avatar(r.displayName||r.name,'#6366f1')}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.displayName||r.name}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>{r.email}</div>
+            </div>
+            {r.alreadyFriend
+              ?<span style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,whiteSpace:'nowrap'}}>Friends ✓</span>
+              :r.sent
+                ?<span style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:'#10b981',whiteSpace:'nowrap'}}>Sent ✓</span>
+                :<button onClick={()=>sendRequest(r)} disabled={r.sending}
+                    style={{padding:'7px 12px',borderRadius:8,background:P.accent,color:'#fff',border:'none',fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
+                    {r.sending?'…':'Add'}
+                  </button>
+            }
+          </div>
+        ))}
+      </>}
+
+      {offApp.length>0&&<>
+        {sectionLabel(`Invite to Bookshelf (${offApp.length})`)}
+        {offApp.map((c,i)=>(
+          <div key={i} style={{background:P.bgSurface,borderRadius:12,padding:'11px 12px',border:`1px solid ${P.border}`,display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+            {avatar(c.name,P.bgCard.includes('1e')?'#374151':'#d1d5db')}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,fontWeight:700,color:P.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name||'Unknown'}</div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted}}>{c.email||c.tel||'No contact info'}</div>
+            </div>
+            {(c.email||c.tel)&&<button onClick={()=>invite(c)}
+              style={{padding:'7px 12px',borderRadius:8,background:P.bgCard,color:P.text,border:`1px solid ${P.border}`,fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>
+              Invite
+            </button>}
+          </div>
+        ))}
+      </>}
+
+      {onApp.length===0&&offApp.length===0&&(
+        <div style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,textAlign:'center',padding:'8px 0 4px'}}>
+          None of the selected contacts use Bookshelf yet.
+        </div>
+      )}
+
+      <button onClick={()=>{setPhase('idle');setOnApp([]);setOffApp([]);}}
+        style={{background:'none',border:'none',color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:'pointer',padding:'8px 0',marginTop:4}}>
+        ← Try different contacts
+      </button>
+    </div>
+  );
+}
+
 function AddFriendModal({ user, friends, onClose, onRequestSent }) {
   const [email, setEmail] = useState('');
   const [found, setFound] = useState(null);
@@ -3965,7 +4143,16 @@ function AddFriendModal({ user, friends, onClose, onRequestSent }) {
 
   return (
     <div style={{padding:"4px 0"}}>
-      <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,margin:"0 0 16px"}}>Add Friend</h3>
+      <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:P.text,margin:"0 0 14px"}}>Add Friend</h3>
+
+      {/* Contact Picker — shows native contact selector, matches against Bookshelf users */}
+      <ContactFriendFinder user={user} friends={friends} onRequestSent={onRequestSent}/>
+
+      {/* Divider */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+        <div style={{flex:1,height:1,background:P.border}}/><span style={{fontFamily:"'Nunito',sans-serif",fontSize:11,color:P.muted,fontWeight:700,whiteSpace:'nowrap'}}>OR SEARCH BY EMAIL</span><div style={{flex:1,height:1,background:P.border}}/>
+      </div>
+
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         <input value={email} onChange={e=>setEmail(e.target.value)}
           onKeyDown={e=>e.key==='Enter'&&search()}
