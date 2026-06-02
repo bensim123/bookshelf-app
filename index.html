@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v323';
+const CACHE='bookshelf-v324';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v323 ok');
+        console.log('SW v324 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1019,9 +1019,11 @@ function pLinks(book) {
   // Amazon: ISBN is most precise; fall back to title+author keywords
   const amazonQ=isbn?isbn:`${title} ${author}`.trim();
   const amazon=`https://www.amazon.com/s?k=${encodeURIComponent(amazonQ)}&i=stripbooks`;
-  // B&N: /s/ path with words joined by + — neither %20 nor ?q= forms work reliably
-  const bnQ=isbn?isbn:`${title}${author?' '+author:''}`.trim();
-  const bn=`https://www.barnesandnoble.com/s/${encodeURIComponent(bnQ).replace(/%20/g,'+')}`;
+  // B&N: ?ean= for ISBN-13 (direct product page, must be 13-digit);
+  //       /search?q= for text searches — /s/ path no longer exists on their site
+  const bn=book.isbn13
+    ?`https://www.barnesandnoble.com/w/?ean=${book.isbn13}`
+    :`https://www.barnesandnoble.com/search?q=${encodeURIComponent(`${title}${author?' '+author:''}`.trim())}`;
   // HPB: always search by title — their inventory isn't indexed by ISBN reliably
   const hpb=`https://www.hpb.com/search?q=${encodeURIComponent(title)}`;
   return {amazon,bn,hpb};
@@ -1874,7 +1876,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.23";
+const APP_VERSION="3.24";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
