@@ -53,8 +53,7 @@ All 5 files must be in the **same folder** on your web server.
 
 ✅ Opens fullscreen — no Safari browser chrome  
 ✅ Works offline after first load  
-✅ Your data is saved on the device (localStorage)  
-✅ Each user’s library is separate (login required)  
+✅ Your data syncs to your Google account (Firebase) — each user’s library is separate  
 ✅ Camera access for barcode scanning works  
 ✅ Feels like a native app
 
@@ -86,3 +85,11 @@ When we make changes to the code, just re-upload `index.html` and `sw.js` to Net
 
 - **Capacitor**: wrap this same code as a real native iOS app for the App Store
 - **Backend + database**: replace localStorage with a real database so data syncs across all your devices and isn’t tied to one browser
+
+-----
+
+## Firebase checklist (if you see a black or loading screen)
+
+1. Firebase Console → Authentication → Settings → **Authorized domains**: add your hosting domain (e.g. `bensim123.github.io`).
+1. Firestore rules should only allow `request.auth.uid == userId` on `users/{userId}`.
+1. After deploying, remove the old home-screen icon and re-add it so the new cache version (v15) loads.

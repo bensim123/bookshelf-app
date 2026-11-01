@@ -1,10 +1,10 @@
 # 📚 Bookshelf App — Project Documentation
 
-**Last Updated:** May 23, 2026
+**Last Updated:** November 1, 2026
 **Current File:** `index.html` (self-contained PWA — React via CDN, no build step)
 **Project Type:** Mobile-first book tracker, deployed as a PWA installable on iPhone
 **Ultimate Goal:** Native iOS app via Capacitor
-**Service Worker:** bookshelf-v14
+**Service Worker:** bookshelf-v15
 
 -----
 
@@ -28,7 +28,8 @@ The prototype runs as a PWA in Safari. Deploy to Netlify or GitHub Pages, instal
 |Barcode Scanning|ZXing (`@zxing/browser@0.1.5` via jsDelivr)|Dynamically imported, rear camera|
 |Cover AI Recognition|Claude API (`claude-sonnet-4-20250514`)|Photo → JSON {title, author, isbn, language}|
 |AI Suggestions|Claude API (`claude-sonnet-4-20250514`)|25 personalized or 8 mood-based suggestions|
-|State|React `useState` + `localStorage`|Full persistence — books, shelves, goal, achievements, saved views, backup timestamp|
+|State|React `useState` + Firestore (per-user doc `users/{uid}`)|Books, shelves, goal, achievements, saved views, onboarded flag, backup timestamp sync to the signed-in Google account. Theme stays in `localStorage`. Backup/restore JSON still available.|
+|Auth & Sync|Firebase Auth (Google) + Firestore (compat SDK 10.12.0, project `bookshelf-9a848`)|Added in PR #2. `signInWithPopup` in browsers; `signInWithRedirect` in home-screen (standalone) mode. Authorized domain must include the hosting domain (e.g. `bensim123.github.io`). Firestore rules must restrict each user to their own `users/{uid}` doc.|
 |PWA|Inline service worker (blob URL)|Caches React + Babel; version-bumped on each deploy|
 
 -----
@@ -327,18 +328,28 @@ See earlier doc versions. Key features built: barcode/cover/search add, detail m
 - `formatComboXP` in `calcXP` now excludes wishlist books
 - Sample books updated with `bookFormat`/`bookBinding` fields and proper `readDates`
 
+**Session 13 (SW v15)**
+- Diagnosed black page: stray `</div>` in `StatsScreen` recap card (older copy); repo `main` already had it fixed
+- `apple-touch-icon` now points at `icon192.png` (matches the real filename)
+- `manifest.json` `start_url` changed from `/` to `./` so the home-screen app opens the GitHub Pages project path
+- Sign-in: redirect flow in standalone mode, popup fallback to redirect, `getRedirectResult` handled, clear message for `auth/unauthorized-domain`
+- Added load timeout with Retry and a guard when the Firebase SDK fails to load
+- Verified by compiling the script and running it in jsdom with a stubbed Firebase (fresh + seeded data, all tabs, key modals): 0 errors
+
 -----
 
 ## 9. Known Issues & Limitations
 
 |Issue|Status|Notes|
 |-----|------|-----|
-|Blank screen in Claude.ai sandbox|Expected|Babel, CDNs, and localStorage blocked in iframe — works normally on Netlify/device|
+|Black page (fixed)|Resolved|Caused by a stray `</div>` in the Stats recap card that broke in-browser Babel compilation (pre-Firebase copies). Not a sandbox limitation. Always compile-check before committing.|
+|Black/blank page after Firebase|Mitigated|Loading screen now shows a Retry message after 8s; a missing Firebase SDK shows a message instead of a blank page. Check Firebase Authorized domains if sign-in fails.|
 |Barcode scanner|Requires real device|Camera access blocked on desktop emulators|
 |OL cover placeholder images|Minor|OL returns 1×1px for missing covers — cover picker's `useCoverValid` filters these|
 |audiobook total time|UX|User must manually enter total minutes — not auto-fetched from OL|
 |Series detection accuracy|Minor|Works well for `(Series, #N)` titles; less reliable for unnumbered series|
-|Cross-device sync|Future|localStorage only — clears if Safari data cleared; backup/restore is the mitigation|
+|Cross-device sync|Done (Firebase)|Requires Google sign-in. Offline edits rely on Firestore's connection; keep using 💾 backups.|
+|Service worker|Minor|Registered from a blob URL with scope `/`, which browsers may reject; offline caching is best-effort. A real `sw.js` file is the proper fix.|
 
 -----
 

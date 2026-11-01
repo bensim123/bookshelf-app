@@ -2,7 +2,7 @@
   "name": "Bookshelf",
   "short_name": "Bookshelf",
   "description": "Your personal reading library",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f0f14",

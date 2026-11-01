@@ -12,8 +12,8 @@
   <meta name="description" content="Your personal reading library"/>
   <title>Bookshelf</title>
   <link rel="manifest" href="manifest.json"/>
-  <link rel="apple-touch-icon" href="icon-192.png"/>
-  <link rel="apple-touch-icon" sizes="180x180" href="icon-192.png"/>
+  <link rel="apple-touch-icon" href="icon192.png"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="icon192.png"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Nunito:wght@400;600;700;800&display=swap"/>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v14';
+const CACHE='bookshelf-v15';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -91,7 +91,7 @@ self.addEventListener('fetch',e=>{
   if(skip||e.request.method!=='GET')return;
   e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{if(e.request.mode==='navigate')return caches.match('/index.html');});}));
 });`;
-    try{const blob=new Blob([SW],{type:'application/javascript'});const url=URL.createObjectURL(blob);navigator.serviceWorker.register(url,{scope:'/'}).then(()=>{console.log('SW v14 ok');URL.revokeObjectURL(url);}).catch(()=>{});}catch(e){}
+    try{const blob=new Blob([SW],{type:'application/javascript'});const url=URL.createObjectURL(blob);navigator.serviceWorker.register(url,{scope:'/'}).then(()=>{console.log('SW v15 ok');URL.revokeObjectURL(url);}).catch(()=>{});}catch(e){}
   }
   // Apply saved theme before React renders (prevents flash)
   try{
@@ -178,6 +178,10 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "133123121564",
   appId:             "1:133123121564:web:343c5103003386260c2859"
 };
+if (typeof firebase === 'undefined') {
+  document.getElementById('root').innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:#f1f1f8;font-family:sans-serif">Couldn\'t load Firebase (check your connection or content blockers), then reload.</div>';
+  throw new Error('Firebase SDK failed to load');
+}
 firebase.initializeApp(FIREBASE_CONFIG);
 
 // ─── Storage (Firestore-backed, localStorage fallback for theme) ──────────────
@@ -2230,11 +2234,12 @@ function App({ user }) {
 
 
 // ─── Auth screens ─────────────────────────────────────────────────────────────
-function LoadingScreen() {
+function LoadingScreen({slow}) {
   return (
     <div style={{minHeight:"100vh",background:DARK.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:20}}>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:36,fontWeight:900,color:DARK.text,letterSpacing:-.5}}>Bookshelf</div>
       <div style={{width:36,height:36,border:`3px solid ${DARK.accent}`,borderTopColor:"transparent",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>
+      {slow&&<div style={{textAlign:"center",color:DARK.muted,fontSize:13,lineHeight:1.6,maxWidth:280}}>Taking longer than usual — check your connection.<br/><button onClick={()=>location.reload()} style={{marginTop:12,background:DARK.accent,color:"#fff",border:"none",borderRadius:12,padding:"10px 22px",fontWeight:800,cursor:"pointer"}}>Retry</button></div>}
     </div>
   );
 }
@@ -2246,9 +2251,17 @@ function AuthScreen() {
   async function signIn() {
     setBusy(true); setErr(null);
     try {
-      await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider());
+      const provider = new firebase.auth.GoogleAuthProvider();
+      const standalone = window.navigator.standalone || window.matchMedia('(display-mode:standalone)').matches;
+      // Popups are unreliable in iOS home-screen apps, so use a full-page redirect there
+      if (standalone) { await firebase.auth().signInWithRedirect(provider); return; }
+      await firebase.auth().signInWithPopup(provider);
     } catch(e) {
-      if (e.code !== 'auth/popup-closed-by-user') setErr("Sign-in failed — please try again.");
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+        try { await firebase.auth().signInWithRedirect(new firebase.auth.GoogleAuthProvider()); return; } catch(e2) { e = e2; }
+      }
+      if (e.code === 'auth/unauthorized-domain') setErr("This site's domain isn't authorized in Firebase (Authentication → Settings → Authorized domains).");
+      else if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') setErr("Sign-in failed — please try again.");
       setBusy(false);
     }
   }
@@ -2278,6 +2291,17 @@ function AuthScreen() {
 function Root() {
   const [authState,setAuthState] = useState('loading');
   const [user,setUser]           = useState(null);
+  const [slow,setSlow]           = useState(false);
+
+  // Finish a redirect sign-in (used in the home-screen app) and surface its errors
+  useEffect(() => {
+    firebase.auth().getRedirectResult().catch(e => console.error('Redirect sign-in failed:', e));
+  }, []);
+  // If Firebase never answers (blocked script, offline), show a message instead of a blank screen
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 8000);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     return firebase.auth().onAuthStateChanged(async firebaseUser => {
@@ -2302,7 +2326,7 @@ function Root() {
     });
   }, []);
 
-  if (authState === 'loading')          return <LoadingScreen/>;
+  if (authState === 'loading')          return <LoadingScreen slow={slow}/>;
   if (authState === 'unauthenticated')  return <AuthScreen/>;
   return <App user={user}/>;
 }
