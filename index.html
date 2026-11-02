@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v331';
+const CACHE='bookshelf-v332';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -103,7 +103,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v331 ok');
+        console.log('SW v332 ok');
         URL.revokeObjectURL(url);
         window._swReg=reg;
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
@@ -1053,19 +1053,29 @@ async function fetchSeriesTitles(book, existingBooks=[]) {
   const author=book.authors?.[0]||"";
   if(!book.title) return [];
   const exTitles=new Set([book.title.toLowerCase(),...existingBooks.map(b=>b.title.toLowerCase())]);
+  // Extract the likely series name: text before the first colon or em-dash
+  const seriesKeyword=book.title.split(/[:\-–]/)[0].trim();
+  // Fire GB+OL search in parallel — works even if AI is down
+  const apiPromise=_searchSeriesBooks(seriesKeyword,author);
+  let aiItems=null;
   try {
     const prompt=`The book "${book.title}" by ${author} — if it is part of a series, list ALL the other books in that same series (do NOT include "${book.title}" itself). If it is a standalone novel with no series, return an empty array.
 Reply ONLY with a JSON array, no markdown fences:
 [{"title":"","author":"","year":""}]`;
     const raw=(await aiText(prompt,1200)).replace(/```json|```/g,"").trim();
     const match=raw.match(/\[[\s\S]*\]/);
-    if(!match) return [];
-    const items=JSON.parse(match[0]).filter(b=>b.title&&!exTitles.has(b.title.toLowerCase())).slice(0,12);
-    if(!items.length) return [];
-    const base=items.map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||author],cover:null,isbn13:"",isbn10:"",status:"suggestion"}));
+    if(match){
+      const parsed=JSON.parse(match[0]).filter(b=>b.title&&!exTitles.has(b.title.toLowerCase())).slice(0,12);
+      if(parsed.length>0) aiItems=parsed;
+    }
+  } catch(e){console.warn("fetchSeriesTitles AI failed:",e);}
+  if(aiItems){
+    const base=aiItems.map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||author],cover:null,isbn13:"",isbn10:"",status:"suggestion"}));
     const enriched=await Promise.allSettled(base.map(b=>enrichSuggestion(b)));
     return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
-  } catch { return []; }
+  }
+  // AI failed or returned nothing — use API results
+  return (await apiPromise).filter(b=>!exTitles.has(b.title.toLowerCase()));
 }
 // Search all books by an author using OL author endpoint + GB inauthor
 async function fetchByAuthor(authorName) {
@@ -1090,10 +1100,12 @@ async function fetchByAuthor(authorName) {
   }).sort((a,b)=>parseInt(a.year||9999)-parseInt(b.year||9999));
 }
 // Non-AI series search using Google Books + Open Library subject search
-async function _searchSeriesBooks(seriesName) {
+// author is optional — adding it focuses GB results on the right franchise
+async function _searchSeriesBooks(seriesName, author='') {
+  const authorQ=author?`+inauthor:${encodeURIComponent('"'+author+'"')}`:'';
   const [gbData,olData]=await Promise.all([
-    fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent('"'+seriesName+'"')}&maxResults=30&orderBy=relevance`).then(r=>r.ok?r.json():null).catch(()=>null),
-    fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(seriesName)}&subject=${encodeURIComponent(seriesName)}&limit=20&fields=key,title,subtitle,author_name,first_publish_year,cover_i,isbn,subject,number_of_pages_median,publisher,language`).then(r=>r.ok?r.json():null).catch(()=>null)
+    fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent('"'+seriesName+'"')}${authorQ}&maxResults=30&orderBy=relevance`).then(r=>r.ok?r.json():null).catch(()=>null),
+    fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(seriesName+(author?' '+author:''))}&limit=20&fields=key,title,subtitle,author_name,first_publish_year,cover_i,isbn,subject,number_of_pages_median,publisher,language`).then(r=>r.ok?r.json():null).catch(()=>null)
   ]);
   const gbBooks=(gbData?.items||[]).map(parseGoogleVolume).filter(Boolean);
   const olBooks=(olData?.docs||[]).map(parseDoc).filter(Boolean);
@@ -2020,7 +2032,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.31";
+const APP_VERSION="3.32";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
