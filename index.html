@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v325';
+const CACHE='bookshelf-v326';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v325 ok');
+        console.log('SW v326 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -288,7 +288,7 @@ const save = (k, v) => {
 
 // ─── Groq AI helpers (via Cloudflare Worker proxy) ───────────────────────────
 const AI_PROXY_URL = "https://calm-butterfly-1f95.bensim123.workers.dev/";
-const GROQ_MODEL   = "llama-3.3-70b-versatile";
+const GROQ_MODEL   = "openai/gpt-oss-20b";
 
 async function aiText(prompt, maxTokens=5000) {
   const r = await fetch(AI_PROXY_URL, {method:"POST",headers:{"Content-Type":"application/json"},
@@ -968,16 +968,22 @@ async function _bnSearch(query) {
   }catch{return [];}
 }
 
+function _mergeGBCover(book,gb){
+  if(!gb?.cover)return book;
+  return{...book,cover:book.cover||gb.cover,coverCandidates:[...new Set([...(book.coverCandidates||[]),gb.cover])]};
+}
 // Multi-source ISBN lookup: OL → OL(alt format) → Google Books → plain-text → B&N → AI bridge
 async function fetchByISBN(isbn) {
   isbn=isbn.replace(/[^0-9X]/gi,"").trim();
   if(!isbn)return null;
   const alt=isbn.length===13?isbn13to10(isbn):isbn10to13(isbn);
+  // Fire Google Books in parallel — OL has richer metadata but weaker cover coverage
+  const gbFast=fetchByISBNGoogle(isbn).catch(()=>null);
   // Open Library (most metadata-rich for edition details)
-  const ol1=await _olByISBN(isbn); if(ol1)return ol1;
-  if(alt){const ol2=await _olByISBN(alt);if(ol2)return ol2;}
-  // Google Books (better coverage, especially newer/self-published)
-  const gb1=await fetchByISBNGoogle(isbn); if(gb1)return gb1;
+  const ol1=await _olByISBN(isbn);if(ol1){const gb=await gbFast;return _mergeGBCover(ol1,gb);}
+  if(alt){const ol2=await _olByISBN(alt);if(ol2){const gb=await gbFast;return _mergeGBCover(ol2,gb);}}
+  // Google Books (already fetched in parallel)
+  const gb1=await gbFast; if(gb1)return gb1;
   if(alt){const gb2=await fetchByISBNGoogle(alt);if(gb2)return gb2;}
   // Plain text search by ISBN number (different indexing than isbn: prefix)
   const res=await olSearch(isbn,1,null).catch(()=>null);
@@ -1129,10 +1135,24 @@ function CoverFallback({title, style}) {
     </div>
   );
 }
-function CoverImg({src,isbn13,isbn10,alt,style,icon="📖"}) {
-  const [cur,setCur]=useState(src);const [step,setStep]=useState(0);
-  useEffect(()=>{setCur(src);setStep(0);},[src]);
-  const onErr=()=>{if(step===0&&isbn13){setCur(`https://covers.openlibrary.org/b/isbn/${isbn13}-M.jpg`);setStep(1);}else if(step<=1&&isbn10){setCur(`https://covers.openlibrary.org/b/isbn/${isbn10}-M.jpg`);setStep(2);}else setCur(null);};
+function CoverImg({src,isbn13,isbn10,alt,style,icon="📖",candidates=[]}) {
+  const [cur,setCur]=useState(src||null);
+  const [gbDone,setGbDone]=useState(false);
+  const queue=useRef([]);
+  useEffect(()=>{
+    queue.current=[...new Set([...(candidates||[]),isbn13?`https://covers.openlibrary.org/b/isbn/${isbn13}-M.jpg`:null,isbn10?`https://covers.openlibrary.org/b/isbn/${isbn10}-M.jpg`:null].filter(Boolean))];
+    setCur(src||null);setGbDone(false);
+  },[src]);
+  const onErr=()=>{
+    const next=queue.current.shift();
+    if(next){setCur(next);return;}
+    if(!gbDone&&(isbn13||isbn10)){
+      setGbDone(true);
+      fetchByISBNGoogle(isbn13||isbn10).then(gb=>{setCur(gb?.cover||null);}).catch(()=>setCur(null));
+      return;
+    }
+    setCur(null);
+  };
   if(!cur) return <CoverFallback title={alt} style={style}/>;
   return <img src={cur} alt={alt} style={style} onError={onErr}/>;
 }
@@ -1390,7 +1410,7 @@ function SeriesModal({newBook,seriesBooks,onAddSelected,onDismiss}) {
   return <div>
     <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:36,marginBottom:8}}>📖</div><h3 style={{fontFamily:"'Playfair Display',serif",color:P.text,margin:"0 0 6px",fontSize:21}}>{sn?`Part of "${sn}"`:"Part of a Series!"}</h3><p style={{fontFamily:"'Nunito',sans-serif",color:P.muted,fontSize:13,lineHeight:1.6}}>Found {seriesBooks.length} other book{seriesBooks.length!==1?"s":""} in this series.<br/>Add them to your wishlist?</p></div>
     <div style={{display:"flex",gap:10,marginBottom:16}}><button onClick={()=>setChecked(new Set(seriesBooks.map(b=>b.id)))} style={{flex:1,background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:10,padding:"7px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,color:P.textLt,cursor:"pointer"}}>Select All</button><button onClick={()=>setChecked(new Set())} style={{flex:1,background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:10,padding:"7px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,color:P.textLt,cursor:"pointer"}}>Deselect All</button></div>
-    <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",marginBottom:20,scrollbarWidth:"none"}}>{seriesBooks.map(b=><div key={b.id} onClick={()=>toggle(b.id)} style={{display:"flex",gap:10,padding:"9px 11px",background:checked.has(b.id)?P.bgSurface:P.bgCard,borderRadius:10,cursor:"pointer",border:`1.5px solid ${checked.has(b.id)?P.accent:P.border}`,transition:"all .15s"}}><div style={{width:40,height:56,borderRadius:6,overflow:"hidden",flexShrink:0}}><CoverImg src={b.cover} isbn13={b.isbn13} isbn10={b.isbn10} alt={b.title} style={{width:40,height:56,objectFit:"cover",borderRadius:6}}/></div><div style={{flex:1,minWidth:0}}><div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,lineHeight:1.3}}>{b.title}</div><div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:11,marginTop:2}}>{b.authors?.[0]}{b.year?` · ${b.year}`:""}</div></div><div style={{display:"flex",alignItems:"center",flexShrink:0}}><div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${checked.has(b.id)?P.accent:P.border}`,background:checked.has(b.id)?P.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{checked.has(b.id)&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}</div></div></div>)}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",marginBottom:20,scrollbarWidth:"none"}}>{seriesBooks.map(b=><div key={b.id} onClick={()=>toggle(b.id)} style={{display:"flex",gap:10,padding:"9px 11px",background:checked.has(b.id)?P.bgSurface:P.bgCard,borderRadius:10,cursor:"pointer",border:`1.5px solid ${checked.has(b.id)?P.accent:P.border}`,transition:"all .15s"}}><div style={{width:40,height:56,borderRadius:6,overflow:"hidden",flexShrink:0}}><CoverImg src={b.cover} isbn13={b.isbn13} isbn10={b.isbn10} candidates={b.coverCandidates||[]} alt={b.title} style={{width:40,height:56,objectFit:"cover",borderRadius:6}}/></div><div style={{flex:1,minWidth:0}}><div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,lineHeight:1.3}}>{b.title}</div><div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:11,marginTop:2}}>{b.authors?.[0]}{b.year?` · ${b.year}`:""}</div></div><div style={{display:"flex",alignItems:"center",flexShrink:0}}><div style={{width:22,height:22,borderRadius:"50%",border:`2px solid ${checked.has(b.id)?P.accent:P.border}`,background:checked.has(b.id)?P.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>{checked.has(b.id)&&<span style={{color:"#fff",fontSize:12,lineHeight:1}}>✓</span>}</div></div></div>)}</div>
     <div style={{display:"flex",flexDirection:"column",gap:10}}><button onClick={()=>onAddSelected(selected)} disabled={selected.length===0} style={{background:selected.length>0?`linear-gradient(135deg,${P.accent},${P.accentDk})`:"#d4b896",color:"#fff",border:"none",borderRadius:14,padding:"14px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,cursor:selected.length>0?"pointer":"default"}}>Add {selected.length} Book{selected.length!==1?"s":""} to Wishlist</button><button onClick={onDismiss} style={{background:"transparent",color:P.muted,border:"none",borderRadius:14,padding:"10px",fontFamily:"'Nunito',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>No thanks</button></div>
   </div>;
 }
@@ -1416,7 +1436,7 @@ function BookCard({book,onClick,onContextMenu}) {
       {(book.ownedFormats||[book.bookFormat||"physical"]).filter(f=>f!=="physical").map(f=><span key={f} style={{fontSize:14,lineHeight:1,filter:"drop-shadow(0 1px 2px rgba(0,0,0,.4))"}}>{FI[f]}</span>)}
     </div>
     <div style={{height:155,background:P.bgSurface,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0}}>
-      <CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+      <CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} candidates={book.coverCandidates||[]} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
     </div>
     {book.status==="reading"&&pct>0&&<div style={{padding:"6px 12px 0"}}><ProgressBar value={pct} max={100} color={SC.reading}/><div style={{fontFamily:"'Nunito',sans-serif",fontSize:10,color:P.muted,marginTop:3,display:"flex",justifyContent:"space-between"}}><span>{pct}%{pages>0&&curPage>0?` · p.${curPage}`:""}</span></div></div>}
     <div style={{padding:"10px 12px 14px",flex:1,display:"flex",flexDirection:"column",gap:4}}>
@@ -1742,7 +1762,7 @@ function SearchPanel({onAdd,onAddWishlist,onClose}) {
     <div style={{display:"flex",flexDirection:"column",gap:10}}>{res.map(book=><div key={book.id} style={{display:"flex",gap:12,padding:"11px 12px",background:P.bgCard,borderRadius:12,border:`1px solid ${P.border}`,transition:"border-color .15s,background .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=P.bgSurface;e.currentTarget.style.borderColor=P.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=P.bgCard;e.currentTarget.style.borderColor=P.border;}}>
       {/* Cover thumbnail — tap to pick different cover */}
       <div onClick={()=>setCoverPickFor(book)} title="Change cover" style={{width:46,height:64,borderRadius:7,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",position:"relative",border:`1px solid ${P.border}`}}>
-        {book.cover?<img src={book.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{const cands=book.coverCandidates||[];const i=cands.indexOf(e.target.src);if(i>=0&&i<cands.length-1){e.target.src=cands[i+1];}else{e.target.style.display="none";}}}/>:<span style={{fontSize:18}}>📖</span>}
+        <CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} candidates={book.coverCandidates||[]} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/>
         <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity .15s",fontSize:14}} onMouseEnter={e=>{e.currentTarget.style.opacity=1;e.currentTarget.style.background="rgba(0,0,0,.4)";}} onMouseLeave={e=>{e.currentTarget.style.opacity=0;e.currentTarget.style.background="rgba(0,0,0,0)";}}>🖼</div>
       </div>
       <div style={{flex:1,minWidth:0,cursor:"pointer"}} onClick={()=>onAdd(book)}>
@@ -1828,7 +1848,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
       </div>
       <div style={{display:"flex",gap:14,background:P.bgSurface,borderRadius:16,padding:14,border:`1px solid ${owned?P.green+"44":P.border}`,marginBottom:18}}>
         <div style={{width:60,height:84,borderRadius:8,overflow:"hidden",flexShrink:0}}>
-          <CoverImg src={b?.cover} isbn13={b?.isbn13} isbn10={b?.isbn10} alt={b?.title} style={{width:60,height:84,objectFit:"cover",borderRadius:8}}/>
+          <CoverImg src={b?.cover} isbn13={b?.isbn13} isbn10={b?.isbn10} candidates={b?.coverCandidates||[]} alt={b?.title} style={{width:60,height:84,objectFit:"cover",borderRadius:8}}/>
         </div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:15,lineHeight:1.3,marginBottom:4}}>{b?.title}</div>
@@ -1876,7 +1896,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.25";
+const APP_VERSION="3.26";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -1992,7 +2012,7 @@ function DetailModal({book,onClose,onUpdate,onDelete,onLogProgress,onLogHighligh
         <div style={{width:40,height:4,borderRadius:2,background:"rgba(255,255,255,.35)"}}/>
         <button onClick={onClose} style={{background:"rgba(0,0,0,.45)",border:"none",borderRadius:"50%",width:36,height:36,color:"#fff",fontSize:20,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",backdropFilter:"blur(6px)"}}>×</button>
       </div>
-      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={ed.cover} isbn13={ed.isbn13} isbn10={ed.isbn10} alt={ed.title} style={{height:200,width:"auto",maxWidth:"52%",borderRadius:8,boxShadow:"0 12px 40px rgba(0,0,0,.7)",objectFit:"cover"}} icon="📖"/></div>
+      <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={ed.cover} isbn13={ed.isbn13} isbn10={ed.isbn10} candidates={ed.coverCandidates||[]} alt={ed.title} style={{height:200,width:"auto",maxWidth:"52%",borderRadius:8,boxShadow:"0 12px 40px rgba(0,0,0,.7)",objectFit:"cover"}} icon="📖"/></div>
       {/* Change cover button — bottom-left of hero */}
       <button onClick={()=>setShowCoverPick(true)} style={{position:"absolute",bottom:12,right:16,zIndex:10,background:"rgba(0,0,0,.5)",border:"1px solid rgba(255,255,255,.2)",borderRadius:20,padding:"5px 12px",color:"#fff",fontFamily:"'Nunito',sans-serif",fontSize:11,fontWeight:700,cursor:"pointer",backdropFilter:"blur(4px)"}}>🖼 Cover</button>
       <div style={{position:"absolute",bottom:14,left:16,display:"flex",gap:8,alignItems:"center"}}><Pill label={SL[ed.status]||ed.status} color={SC[ed.status]||"#888"}/>{ed.rating>0&&<Stars value={ed.rating} size={14}/>}{ed.loan&&<Pill label={`📤 ${ed.loan.name}`} color="rgba(139,104,176,.85)"/>}</div>
@@ -2095,7 +2115,7 @@ function ListView({books,onSelect}) {
     </div>
     {sorted.length===0?<div style={{textAlign:"center",padding:"40px 0",color:P.muted,fontFamily:"'Nunito',sans-serif"}}>No books match these filters</div>
     :sorted.map((book,i)=><div key={book.id} onClick={()=>onSelect(book)} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",background:i%2===0?P.bgCard:P.bgMid,borderRadius:8,cursor:"pointer",marginBottom:1,transition:"background .12s,border-color .12s"}} onMouseEnter={e=>e.currentTarget.style.background=P.bgSurface} onMouseLeave={e=>e.currentTarget.style.background=i%2===0?P.bgCard:P.bgMid}>
-      <div style={{width:44,height:34,borderRadius:4,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{book.cover?<img src={book.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>:<span style={{fontSize:16}}>📖</span>}</div>
+      <div style={{width:44,height:34,borderRadius:4,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} candidates={book.coverCandidates||[]} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
       <div style={{flex:3,minWidth:0,fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{book.title}</div>
       <div style={{flex:2,minWidth:0,fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.textLt,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{book.authors?.[0]||"—"}</div>
       <div style={{width:52,fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,textAlign:"center",flexShrink:0}}>{book.year||"—"}</div>
@@ -2250,7 +2270,7 @@ function StatsScreen({books,goal}) {
     {allRead.filter(b=>b.rating===5).length>0&&<div style={{margin:"0 20px 20px",background:P.bgCard,borderRadius:16,padding:"18px 16px",border:`1px solid ${P.border}`,boxShadow:"0 2px 16px rgba(0,0,0,.3)"}}>
       <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12,color:P.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:14}}>⭐ Five-Star Reads</div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {allRead.filter(b=>b.rating===5).slice(0,5).map(b=><div key={b.id} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:50,borderRadius:5,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{b.cover?<img src={b.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>:<span style={{fontSize:14}}>📖</span>}</div><div style={{flex:1,minWidth:0}}><div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.title}</div><div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:11}}>{b.authors?.[0]||""}</div></div></div>)}
+        {allRead.filter(b=>b.rating===5).slice(0,5).map(b=><div key={b.id} style={{display:"flex",gap:10,alignItems:"center"}}><div style={{width:36,height:50,borderRadius:5,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={b.cover} isbn13={b.isbn13} isbn10={b.isbn10} candidates={b.coverCandidates||[]} alt={b.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div><div style={{flex:1,minWidth:0}}><div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,color:P.text,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.title}</div><div style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:11}}>{b.authors?.[0]||""}</div></div></div>)}
       </div>
     </div>}
   </div>;
@@ -2313,7 +2333,7 @@ function SuggestScreen({books,onAddWishlist}) {
           <div style={{display:"flex",gap:14,padding:"15px 14px 13px"}}>
             <div style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:7}}>
               <span style={{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:900,color:P.accent,lineHeight:1}}>{i+1}</span>
-              <div style={{width:60,height:82,borderRadius:8,overflow:"hidden",background:P.bgSurface,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
+              <div style={{width:60,height:82,borderRadius:8,overflow:"hidden",background:P.bgSurface,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} candidates={book.coverCandidates||[]} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
             </div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:15,color:P.text,lineHeight:1.3,marginBottom:3}}>{book.title}</div>
@@ -3533,7 +3553,7 @@ function App({ user }) {
               ?`${fmtMinutes(curPage)} listened${pages>0?` of ${fmtMinutes(pages)}`:""}${pct>0?` · ${pct}%`:""}`
               :`${pct}%${pages>0&&curPage>0?` · p.${curPage} of ${pages}`:""}`;
             return <div key={book.id} onClick={()=>setSelected(book)} style={{background:P.bgCard,borderRadius:14,padding:"12px 14px",border:`1px solid ${P.border}`,display:"flex",gap:12,alignItems:"center",marginBottom:8,boxShadow:"0 2px 12px rgba(0,0,0,.3)",cursor:"pointer"}}>
-              <div style={{width:42,height:58,borderRadius:6,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{book.cover?<img src={book.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>:<span style={{fontSize:18}}>{FI[fmt]||"📖"}</span>}</div>
+              <div style={{width:42,height:58,borderRadius:6,overflow:"hidden",background:P.bgSurface,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} candidates={book.coverCandidates||[]} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3}}>
                   {fmt!=="physical"&&<span style={{fontSize:12}}>{FI[fmt]}</span>}
