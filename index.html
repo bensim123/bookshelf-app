@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v327';
+const CACHE='bookshelf-v328';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -102,7 +102,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v327 ok');
+        console.log('SW v328 ok');
         URL.revokeObjectURL(url);
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
         // That fires 'controllerchange' here — reload once to pick up fresh assets.
@@ -1077,9 +1077,23 @@ async function fetchByAuthor(authorName) {
   const merged=[...olBooks,...gbBooks.filter(b=>!seen.has(b.title.toLowerCase().split(':')[0].trim()))];
   return merged.filter(b=>b.language==="en"||!b.language).sort((a,b)=>parseInt(a.year||9999)-parseInt(b.year||9999));
 }
+// Non-AI series search using Google Books + Open Library subject search
+async function _searchSeriesBooks(seriesName) {
+  const [gbData,olData]=await Promise.all([
+    fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent('"'+seriesName+'"')}&maxResults=30&orderBy=relevance`).then(r=>r.ok?r.json():null).catch(()=>null),
+    fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(seriesName)}&subject=${encodeURIComponent(seriesName)}&limit=20&fields=key,title,subtitle,author_name,first_publish_year,cover_i,isbn,subject,number_of_pages_median,publisher,language`).then(r=>r.ok?r.json():null).catch(()=>null)
+  ]);
+  const gbBooks=(gbData?.items||[]).map(parseGoogleVolume).filter(Boolean);
+  const olBooks=(olData?.docs||[]).map(parseDoc).filter(Boolean);
+  const seen=new Set(gbBooks.map(b=>b.title.toLowerCase().split(':')[0].trim()));
+  return [...gbBooks,...olBooks.filter(b=>!seen.has(b.title.toLowerCase().split(':')[0].trim()))];
+}
 // AI-powered series/franchise search — supports sub-series and large franchises
 async function fetchBySeriesName(seriesName,existingBooks=[]) {
   const exTitles=new Set(existingBooks.map(b=>b.title.toLowerCase()));
+  // Always kick off the non-AI search in parallel — it's reliable even if AI fails
+  const apiPromise=_searchSeriesBooks(seriesName);
+  let aiItems=null;
   try{
     const prompt=`List all novels and books in the "${seriesName}" series or franchise in publication order.
 For each book include: title, author, year, and the sub-series name if the franchise has sub-series (e.g. "Thrawn Trilogy" within Star Wars). Leave subseries blank if the franchise has no sub-series.
@@ -1089,13 +1103,20 @@ Reply ONLY with a JSON array, no markdown:
 If no books exist for this series, return [].`;
     const raw=(await aiText(prompt,2500)).replace(/```json|```/g,"").trim();
     const match=raw.match(/\[[\s\S]*\]/);
-    if(!match)return [];
-    const items=JSON.parse(match[0]).filter(b=>b.title&&!exTitles.has(b.title.toLowerCase())).slice(0,30);
-    if(!items.length)return [];
-    const base=items.map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||""],subseries:s.subseries||"",cover:null,isbn13:"",isbn10:"",status:"suggestion"}));
+    if(match){
+      const parsed=JSON.parse(match[0]).filter(b=>b.title&&!exTitles.has(b.title.toLowerCase())).slice(0,40);
+      if(parsed.length>0) aiItems=parsed;
+    }
+  }catch(e){console.warn("Series AI failed, falling back to API search:",e);}
+  if(aiItems){
+    const base=aiItems.map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||""],subseries:s.subseries||"",cover:null,isbn13:"",isbn10:"",status:"suggestion"}));
     const enriched=await Promise.allSettled(base.map(b=>enrichSuggestion(b)));
     return enriched.map((r,i)=>r.status==="fulfilled"?{...r.value,subseries:base[i].subseries}:base[i]);
-  }catch{return [];}
+  }
+  // AI failed or returned nothing — use API results
+  const apiBooks=(await apiPromise).filter(b=>!exTitles.has(b.title.toLowerCase()));
+  if(!apiBooks.length) throw new Error(`No results found for "${seriesName}". Try the exact series name, e.g. "Ender's Game" or "Star Wars Thrawn Trilogy".`);
+  return apiBooks;
 }
 async function aiSuggest(books) {
   const ro=books.filter(b=>["read","owned","reading"].includes(b.status));
@@ -1684,9 +1705,11 @@ function SearchPanel({onAdd,onAddWishlist,onClose,initialMode="books",initialQue
         return;
       }
       if(searchMode==="series"){
-        const books=await fetchBySeriesName(query);
-        setRes(books);
-        if(!books.length)setErr(`No series found for "${query}". Try the full franchise name (e.g. "Star Wars").`);
+        try{
+          const books=await fetchBySeriesName(query);
+          setRes(books);
+          if(!books.length)setErr(`No series found for "${query}". Try the exact series name, e.g. "Ender's Game" or "Star Wars Thrawn Trilogy".`);
+        }catch(e){setErr(e.message||`Series search failed. Try a more specific series name.`);}
         return;
       }
       const clean=query.replace(/[^0-9X]/gi,"");
@@ -1978,7 +2001,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.27";
+const APP_VERSION="3.28";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
