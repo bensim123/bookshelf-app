@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v334';
+const CACHE='bookshelf-v335';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -103,7 +103,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v334 ok');
+        console.log('SW v335 ok');
         URL.revokeObjectURL(url);
         window._swReg=reg;
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
@@ -1674,7 +1674,29 @@ function CoverPickerModal({book, onSelect, onClose}) {
   const [candidates,setCandidates]=useState(book.coverCandidates||[]);
   const [selected,setSelected]=useState(book.cover||null);
   const [uploading,setUploading]=useState(false);
+  const [coverQ,setCoverQ]=useState("");
+  const [searching,setSearching]=useState(false);
   const fileRef=useRef();
+  async function searchCovers(e){
+    e&&e.preventDefault();
+    const q=coverQ.trim();if(!q)return;
+    setSearching(true);
+    try{
+      const add=urls=>setCandidates(c=>[...new Set([...c,...urls.filter(Boolean)])]);
+      const [gbData,olData]=await Promise.all([
+        fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=20`).then(r=>r.ok?r.json():null).catch(()=>null),
+        fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=10&fields=cover_i,isbn`).then(r=>r.ok?r.json():null).catch(()=>null)
+      ]);
+      const gbCovers=(gbData?.items||[]).map(v=>{const il=v.volumeInfo?.imageLinks;return il?.thumbnail||il?.smallThumbnail||null;}).filter(Boolean);
+      const olCovers=(olData?.docs||[]).flatMap(d=>{
+        const urls=[];
+        if(d.cover_i)urls.push(`https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`);
+        (d.isbn||[]).filter(i=>i.length===13).forEach(i=>urls.push(`https://covers.openlibrary.org/b/isbn/${i}-L.jpg`));
+        return urls;
+      });
+      add([...gbCovers,...olCovers]);
+    }finally{setSearching(false);}
+  }
   function pickFile(file){
     if(!file)return;
     setUploading(true);
@@ -1739,6 +1761,13 @@ function CoverPickerModal({book, onSelect, onClose}) {
         {uploading?"⏳ Processing…":"📷 Upload your own cover photo"}
       </button>
       <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>pickFile(e.target.files[0])}/>
+      {/* Cover search */}
+      <form onSubmit={searchCovers} style={{display:"flex",gap:8,marginBottom:16}}>
+        <input value={coverQ} onChange={e=>setCoverQ(e.target.value)} placeholder="Search for a cover…" style={{flex:1,background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:10,padding:"10px 12px",fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.text,outline:"none"}}/>
+        <button type="submit" disabled={searching||!coverQ.trim()} style={{background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:10,padding:"10px 14px",fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:13,cursor:searching||!coverQ.trim()?"default":"pointer",opacity:searching||!coverQ.trim()?.5:1,flexShrink:0}}>
+          {searching?"…":"🔍"}
+        </button>
+      </form>
       {/* Cover grid */}
       {validShown
         ? <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
@@ -2077,7 +2106,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.34";
+const APP_VERSION="3.35";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
