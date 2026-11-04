@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v335';
+const CACHE='bookshelf-v336';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -103,7 +103,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v335 ok');
+        console.log('SW v336 ok');
         URL.revokeObjectURL(url);
         window._swReg=reg;
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
@@ -1145,6 +1145,7 @@ If no books exist for this series, return [].`;
 async function aiSuggest(books) {
   const ro=books.filter(b=>["read","owned","reading"].includes(b.status));
   const allTitles=books.map(b=>b.title).slice(0,50).join(", ");
+  const libSet=new Set(books.map(b=>b.title.toLowerCase()));
   const prompt=`You are a passionate librarian. Suggest exactly 25 books the reader will love.
 Read/owned: ${ro.map(b=>b.title).slice(0,25).join(", ")}
 Genres: ${[...new Set(ro.map(b=>b.genre).filter(Boolean))].join(", ")||"varied"}
@@ -1153,24 +1154,51 @@ Already in library (DO NOT suggest these): ${allTitles}
 Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price. Never suggest a book already in their library.
 Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
-  const text=(await aiText(prompt,5000)).replace(/```json|```/g,"").trim();
-  const libSet=new Set(books.map(b=>b.title.toLowerCase()));
-  const base=JSON.parse(text).filter(s=>s.title&&!libSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
-  const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
-  return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
+  try {
+    const text=(await aiText(prompt,5000)).replace(/```json|```/g,"").trim();
+    const match=text.match(/\[[\s\S]*\]/);
+    if(match){
+      const base=JSON.parse(match[0]).filter(s=>s.title&&!libSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||""],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+      if(base.length>0){
+        const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
+        return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
+      }
+    }
+  } catch(e){ console.warn("aiSuggest AI failed, using author-based fallback:",e); }
+  // Fallback: fetch more books by the user's top authors
+  const topAuthors=[...new Set(ro.map(b=>b.authors?.[0]).filter(Boolean))].slice(0,5);
+  if(!topAuthors.length) throw new Error("Add at least one book to your library so we can find recommendations.");
+  const results=await Promise.allSettled(topAuthors.map(a=>fetchByAuthor(a)));
+  const allFound=results.flatMap(r=>r.status==="fulfilled"?r.value:[]).filter(b=>!libSet.has(b.title.toLowerCase()));
+  const seen=new Set();
+  const unique=allFound.filter(b=>{const k=b.title.toLowerCase();if(seen.has(k))return false;seen.add(k);return true;});
+  if(!unique.length) throw new Error("Could not find recommendations. Try adding more books to your library.");
+  return unique.sort(()=>Math.random()-0.5).slice(0,25).map(b=>({...b,status:"suggestion",reason:"Based on your favorite authors"}));
 }
 async function aiMoodSuggest(mood,books) {
   const ro=books.filter(b=>["read","owned"].includes(b.status)).map(b=>b.title).slice(0,20);
   const allTitles=books.map(b=>b.title).slice(0,50).join(", ");
+  const libSet=new Set(books.map(b=>b.title.toLowerCase()));
   const prompt=`Reader wants: "${mood}". They've enjoyed: ${ro.join(", ")||"various"}.
 Already in library (DO NOT suggest these): ${allTitles}
 Suggest 8 books matching this mood that are NOT already in their library. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
-  const text=(await aiText(prompt,2000)).replace(/```json|```/g,"").trim();
-  const libSet=new Set(books.map(b=>b.title.toLowerCase()));
-  const base=JSON.parse(text).filter(s=>s.title&&!libSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
-  const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
-  return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
+  try {
+    const text=(await aiText(prompt,2000)).replace(/```json|```/g,"").trim();
+    const match=text.match(/\[[\s\S]*\]/);
+    if(match){
+      const base=JSON.parse(match[0]).filter(s=>s.title&&!libSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author||""],cover:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+      if(base.length>0){
+        const enriched=await Promise.allSettled(base.map(s=>enrichSuggestion(s)));
+        return enriched.map((r,i)=>r.status==="fulfilled"?r.value:base[i]);
+      }
+    }
+  } catch(e){ console.warn("aiMoodSuggest AI failed, using search fallback:",e); }
+  // Fallback: search OL/GB for the mood query
+  const fallback=await _searchSeriesBooks(mood,'');
+  const filtered=fallback.filter(b=>!libSet.has(b.title.toLowerCase())).slice(0,8);
+  if(!filtered.length) throw new Error(`No books found for "${mood}". Try a different description.`);
+  return filtered.map(b=>({...b,status:"suggestion",reason:`Matches your mood: "${mood}"`}));
 }
 
 // ─── Native Share API ────────────────────────────────────────────────────────
@@ -2106,7 +2134,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.35";
+const APP_VERSION="3.36";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
