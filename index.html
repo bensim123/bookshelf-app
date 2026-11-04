@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v333';
+const CACHE='bookshelf-v334';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -103,7 +103,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v333 ok');
+        console.log('SW v334 ok');
         URL.revokeObjectURL(url);
         window._swReg=reg;
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
@@ -1213,12 +1213,27 @@ function CoverFallback({title, style}) {
   );
 }
 function CoverImg({src,isbn13,isbn10,alt,style,icon="📖",candidates=[]}) {
-  const [cur,setCur]=useState(src||null);
   const [gbDone,setGbDone]=useState(false);
   const queue=useRef([]);
+  function _buildQ(allCandidates){
+    return[...new Set([...(allCandidates||[]),
+      isbn13?`https://covers.openlibrary.org/b/isbn/${isbn13}-M.jpg`:null,
+      isbn10?`https://covers.openlibrary.org/b/isbn/${isbn10}-M.jpg`:null
+    ].filter(Boolean))];
+  }
+  // When src is null, start from the first candidate instead of showing CoverFallback immediately.
+  // onErr only fires for <img> elements — if cur===null we show CoverFallback and the queue is never consumed.
+  const [cur,setCur]=useState(()=>{
+    if(src) return src;
+    const q=_buildQ(candidates);
+    queue.current=q.slice(1);
+    return q[0]||null;
+  });
   useEffect(()=>{
-    queue.current=[...new Set([...(candidates||[]),isbn13?`https://covers.openlibrary.org/b/isbn/${isbn13}-M.jpg`:null,isbn10?`https://covers.openlibrary.org/b/isbn/${isbn10}-M.jpg`:null].filter(Boolean))];
-    setCur(src||null);setGbDone(false);
+    const q=_buildQ(candidates);
+    if(src){queue.current=q.filter(u=>u!==src);setCur(src);}
+    else{queue.current=q.slice(1);setCur(q[0]||null);}
+    setGbDone(false);
   },[src]);
   const onErr=()=>{
     const next=queue.current.shift();
@@ -1673,23 +1688,47 @@ function CoverPickerModal({book, onSelect, onClose}) {
     };
     r.readAsDataURL(file);
   }
-  // Also try fetching more covers by searching OL for this book's work key
+  // Fetch additional covers from OL (work covers + editions) and Google Books
   useEffect(()=>{
-    if(!book.isbn13&&!book.isbn10&&!book.id) return;
     (async()=>{
-      try{
-        // Fetch work covers if we have a work key
-        if(book.id&&!book.id.includes("-")){
-          const wr=await fetch(`https://openlibrary.org/works/${book.id}.json`);
+      const add=urls=>setCandidates(c=>[...new Set([...c,...urls.filter(Boolean)])]);
+      // 1. OL work covers (cover IDs on the work record)
+      const olWorkId=book.id&&/^OL\d+W$/i.test(book.id)?book.id:null;
+      if(olWorkId){
+        try{
+          const wr=await fetch(`https://openlibrary.org/works/${olWorkId}.json`);
           if(wr.ok){
             const w=await wr.json();
-            const extra=(w.covers||[]).map(id=>`https://covers.openlibrary.org/b/id/${id}-L.jpg`);
-            if(extra.length) setCandidates(c=>[...new Set([...c,...extra])]);
+            add((w.covers||[]).map(id=>`https://covers.openlibrary.org/b/id/${id}-L.jpg`));
           }
-        }
-      }catch{}
+        }catch{}
+      }
+      // 2. OL editions — each edition can have its own cover ID
+      if(olWorkId){
+        try{
+          const er=await fetch(`https://openlibrary.org/works/${olWorkId}/editions.json?limit=20`);
+          if(er.ok){
+            const eds=(await er.json()).entries||[];
+            const edCovers=eds.flatMap(e=>(e.covers||[]).filter(id=>id>0).map(id=>`https://covers.openlibrary.org/b/id/${id}-L.jpg`));
+            const edIsbnCovers=eds.flatMap(e=>[...(e.isbn_13||[]),...(e.isbn_10||[])].map(i=>`https://covers.openlibrary.org/b/isbn/${i}-L.jpg`));
+            add([...edCovers,...edIsbnCovers]);
+          }
+        }catch{}
+      }
+      // 3. Google Books by title+author — often has cover art missing from OL
+      if(book.title){
+        try{
+          const q=`intitle:${encodeURIComponent(book.title)}${book.authors?.[0]?`+inauthor:${encodeURIComponent(book.authors[0])}`:''}`;
+          const gr=await fetch(`https://www.googleapis.com/books/v1/volumes?q=${q}&maxResults=10`);
+          if(gr.ok){
+            const gd=await gr.json();
+            const gbCovers=(gd?.items||[]).map(parseGoogleVolume).map(b=>b.cover).filter(Boolean);
+            add(gbCovers);
+          }
+        }catch{}
+      }
     })();
-  },[book.id]);
+  },[book.id,book.title]);
   const validShown = candidates.length>0;
   return (
     <div>
@@ -2038,7 +2077,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.33";
+const APP_VERSION="3.34";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
