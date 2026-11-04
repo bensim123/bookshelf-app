@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v336';
+const CACHE='bookshelf-v337';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -103,7 +103,7 @@ self.addEventListener('fetch',e=>{
       const blob=new Blob([SW],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       navigator.serviceWorker.register(url,{scope:'/'}).then(reg=>{
-        console.log('SW v336 ok');
+        console.log('SW v337 ok');
         URL.revokeObjectURL(url);
         window._swReg=reg;
         // When a new SW version installs, it calls skipWaiting() and clients.claim().
@@ -2134,7 +2134,7 @@ function ShopCheckModal({books,onAdd,onClose}) {
 }
 
 // ─── About Modal ──────────────────────────────────────────────────────────────
-const APP_VERSION="3.36";
+const APP_VERSION="3.37";
 const HELP_SECTIONS=[
   {title:"Adding Books",icon:"➕",body:`Tap the ＋ button (center of the bottom bar) to add a book three ways:\n• 📷 Scan Barcode — point your camera at any ISBN barcode for instant lookup\n• 🛒 Check Library — quickly see if you already own something while shopping\n• 🔍 Search — search by title, author, or ISBN`},
   {title:"Tracking Your Reading",icon:"📖",body:`Open any book card to update its status (Owned, Reading, Read, DNF, Wishlist). While a book is in Reading, use the Progress button to log your current page or listening time. Your reading progress appears as a bar on the card.`},
@@ -2567,17 +2567,21 @@ function SuggestScreen({books,onAddWishlist}) {
   const [sel,setSel]=useState(null),[shareOpen,setShareOpen]=useState(false),[gen,setGen]=useState(false);
   const [moodMode,setMoodMode]=useState(false),[mood,setMood]=useState("");
   const [added,setAdded]=useState(new Set());
+  const [excluded,setExcluded]=useState(()=>{try{return new Set(JSON.parse(localStorage.getItem('sug_excluded')||'[]'));}catch{return new Set();}});
   function handleAddWishlist(book){onAddWishlist(book);setAdded(prev=>new Set([...prev,book.id]));}
+  function excludeBook(book){const next=new Set([...excluded,book.title.toLowerCase()]);setExcluded(next);try{localStorage.setItem('sug_excluded',JSON.stringify([...next]));}catch{}}
+  function clearExcluded(){setExcluded(new Set());try{localStorage.removeItem('sug_excluded');}catch{}}
   const owned=books.filter(b=>["read","owned","reading"].includes(b.status));
+  const visibleSugs=sugs.filter(b=>!excluded.has(b.title.toLowerCase()));
   async function generate(){setBusy(true);setErr("");setSugs([]);try{setSugs(await aiSuggest(books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   async function generateMood(){if(!mood.trim())return;setBusy(true);setErr("");setSugs([]);try{setSugs(await aiMoodSuggest(mood,books));setGen(true);}catch{setErr("Could not generate — please try again.");}finally{setBusy(false);}}
   function shareText(){
-    const body=sugs.slice(0,5).map((b,i)=>{const l=pLinks(b);return`${i+1}. ${b.title} by ${b.authors?.[0]||"?"}\n   Amazon: ${l.amazon}`;}).join("\n\n")+"\n\n(more in Bookshelf)";
+    const body=visibleSugs.slice(0,5).map((b,i)=>{const l=pLinks(b);return`${i+1}. ${b.title} by ${b.authors?.[0]||"?"}\n   Amazon: ${l.amazon}`;}).join("\n\n")+"\n\n(more in Bookshelf)";
     nativeShare("My Book Suggestions",body,()=>window.open(`sms:?&body=${encodeURIComponent(body)}`));
     setShareOpen(false);
   }
-  function shareEmail(){const w=window.open("","_blank");const tip='<div style="background:#f5f0e8;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:13px;color:#5a3e28;font-family:Arial,sans-serif">📋 <strong>To email this list:</strong> Select all (Ctrl+A / ⌘+A), copy (Ctrl+C / ⌘+C), then paste into Gmail, Outlook, or Apple Mail.</div>';w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Book Suggestions</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{font-size:28px;margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e0d0b8}.num{color:#6366f1;font-weight:bold;font-size:18px}.title{font-size:16px;font-weight:bold;margin:3px 0}.auth{color:#7a5c3a}.meta{font-size:12px;color:#a08060;margin:3px 0}.reason{font-size:13px;font-style:italic;margin:6px 0;color:#4a3020}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px}.links{display:flex;gap:14px;margin-top:8px}.links a{font-size:12px;color:#1a3c5e;text-decoration:none}</style></head><body>${tip}<h1>📚 Book Suggestions</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>${sugs.map((b,i)=>{const l=pLinks(b);return`<div class="book"><span class="num">${i+1}.</span><div class="title">${b.title}${b.price?`<span class="price">${b.price}</span>`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"}</div><div class="meta">${[b.genre,b.year].filter(Boolean).join(" · ")}</div>${b.reason?`<div class="reason">"${b.reason}"</div>`:""}<div class="links"><a href="${l.amazon}">🛒 Amazon</a> · <a href="${l.bn}">📗 Barnes &amp; Noble</a> · <a href="${l.hpb}">🏷 Half Price Books</a></div></div>`;}).join("")}</body></html>`);w.document.close();setShareOpen(false);}
-  function sharePDF(){const w=window.open("","_blank");w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Book Suggestions</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{font-size:28px;margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e0d0b8}.num{color:#6366f1;font-weight:bold;font-size:18px}.title{font-size:16px;font-weight:bold;margin:3px 0}.auth{color:#7a5c3a}.meta{font-size:12px;color:#a08060;margin:3px 0}.reason{font-size:13px;font-style:italic;margin:6px 0;color:#4a3020}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px}.links{display:flex;gap:14px;margin-top:8px}.links a{font-size:12px;color:#1a3c5e}</style></head><body><h1>📚 Book Suggestions</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>${sugs.map((b,i)=>{const l=pLinks(b);return`<div class="book"><span class="num">${i+1}.</span><div class="title">${b.title}${b.price?`<span class="price">${b.price}</span>`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"}</div><div class="meta">${[b.genre,b.year].filter(Boolean).join(" · ")}</div>${b.reason?`<div class="reason">"${b.reason}"</div>`:""}<div class="links"><a href="${l.amazon}">🛒 Amazon</a><a href="${l.bn}">📗 Barnes &amp; Noble</a><a href="${l.hpb}">🏷 Half Price Books</a></div></div>`;}).join("")}</body></html>`);w.document.close();w.onload=()=>{w.focus();w.print();};setShareOpen(false);}
+  function shareEmail(){const w=window.open("","_blank");const tip='<div style="background:#f5f0e8;border-radius:8px;padding:14px 18px;margin-bottom:24px;font-size:13px;color:#5a3e28;font-family:Arial,sans-serif">📋 <strong>To email this list:</strong> Select all (Ctrl+A / ⌘+A), copy (Ctrl+C / ⌘+C), then paste into Gmail, Outlook, or Apple Mail.</div>';w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Book Suggestions</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{font-size:28px;margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e0d0b8}.num{color:#6366f1;font-weight:bold;font-size:18px}.title{font-size:16px;font-weight:bold;margin:3px 0}.auth{color:#7a5c3a}.meta{font-size:12px;color:#a08060;margin:3px 0}.reason{font-size:13px;font-style:italic;margin:6px 0;color:#4a3020}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px}.links{display:flex;gap:14px;margin-top:8px}.links a{font-size:12px;color:#1a3c5e;text-decoration:none}</style></head><body>${tip}<h1>📚 Book Suggestions</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>${visibleSugs.map((b,i)=>{const l=pLinks(b);return`<div class="book"><span class="num">${i+1}.</span><div class="title">${b.title}${b.price?`<span class="price">${b.price}</span>`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"}</div><div class="meta">${[b.genre,b.year].filter(Boolean).join(" · ")}</div>${b.reason?`<div class="reason">"${b.reason}"</div>`:""}<div class="links"><a href="${l.amazon}">🛒 Amazon</a> · <a href="${l.bn}">📗 Barnes &amp; Noble</a> · <a href="${l.hpb}">🏷 Half Price Books</a></div></div>`;}).join("")}</body></html>`);w.document.close();setShareOpen(false);}
+  function sharePDF(){const w=window.open("","_blank");w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Book Suggestions</title><style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#2c1a0e;line-height:1.65}h1{font-size:28px;margin-bottom:4px}.sub{color:#7a5c3a;margin-bottom:28px}.book{margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid #e0d0b8}.num{color:#6366f1;font-weight:bold;font-size:18px}.title{font-size:16px;font-weight:bold;margin:3px 0}.auth{color:#7a5c3a}.meta{font-size:12px;color:#a08060;margin:3px 0}.reason{font-size:13px;font-style:italic;margin:6px 0;color:#4a3020}.price{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px}.links{display:flex;gap:14px;margin-top:8px}.links a{font-size:12px;color:#1a3c5e}</style></head><body><h1>📚 Book Suggestions</h1><p class="sub">Generated ${new Date().toLocaleDateString()}</p>${visibleSugs.map((b,i)=>{const l=pLinks(b);return`<div class="book"><span class="num">${i+1}.</span><div class="title">${b.title}${b.price?`<span class="price">${b.price}</span>`:""}</div><div class="auth">by ${b.authors?.[0]||"Unknown"}</div><div class="meta">${[b.genre,b.year].filter(Boolean).join(" · ")}</div>${b.reason?`<div class="reason">"${b.reason}"</div>`:""}<div class="links"><a href="${l.amazon}">🛒 Amazon</a><a href="${l.bn}">📗 Barnes &amp; Noble</a><a href="${l.hpb}">🏷 Half Price Books</a></div></div>`;}).join("")}</body></html>`);w.document.close();w.onload=()=>{w.focus();w.print();};setShareOpen(false);}
   return <div style={{paddingBottom:84}}>
     <div style={{padding:"48px 20px 16px"}}><h1 style={{fontFamily:"'Playfair Display',serif",fontSize:30,color:P.text,margin:"0 0 6px",fontWeight:900}}>Suggestions</h1><p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,lineHeight:1.5}}>Claude finds your next perfect read from {owned.length} book{owned.length!==1?"s":""} in your library.</p></div>
     <div style={{padding:"0 20px 20px"}}><div style={{display:"flex",background:P.bgCard,borderRadius:14,padding:4,gap:4,border:`1px solid ${P.border}`}}>{[["✨ For You",false],["🎭 By Mood",true]].map(([l,m])=><button key={String(m)} onClick={()=>setMoodMode(m)} style={{flex:1,background:moodMode===m?P.accent:"transparent",border:"none",borderRadius:10,padding:"10px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,color:moodMode===m?"#fff":P.muted,cursor:"pointer",transition:"all .2s"}}>{l}</button>)}</div></div>
@@ -2587,21 +2591,26 @@ function SuggestScreen({books,onAddWishlist}) {
     {err&&<div style={{padding:"0 20px"}}><div style={{background:"rgba(239,68,68,.1)",borderRadius:14,padding:"16px",color:"#c0392b",fontFamily:"'Nunito',sans-serif",fontSize:14,textAlign:"center",marginBottom:14}}>{err}</div><div style={{textAlign:"center"}}><button onClick={moodMode?generateMood:generate} style={{background:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 28px",fontFamily:"'Nunito',sans-serif",fontWeight:800,cursor:"pointer"}}>Try Again</button></div></div>}
     {sugs.length>0&&<div style={{padding:"0 20px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <span style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.textLt,fontWeight:700}}>{sugs.length} suggestions</span>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.textLt,fontWeight:700}}>{visibleSugs.length} suggestion{visibleSugs.length!==1?"s":""}</span>
+          {excluded.size>0&&<button onClick={clearExcluded} style={{background:"none",border:"none",color:P.muted,fontFamily:"'Nunito',sans-serif",fontSize:11,cursor:"pointer",textDecoration:"underline",padding:0}}>{excluded.size} hidden · Clear</button>}
+        </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <button onClick={moodMode?generateMood:generate} style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:20,padding:"7px 14px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer"}}>↺ Refresh</button>
           <div style={{position:"relative"}}><button onClick={()=>setShareOpen(o=>!o)} style={{background:P.accent,color:"#fff",border:"none",borderRadius:20,padding:"7px 16px",fontFamily:"'Nunito',sans-serif",fontSize:12,fontWeight:700,cursor:"pointer"}}>Share ↑</button>
           {shareOpen&&<div style={{position:"absolute",right:0,top:"calc(100% + 8px)",background:P.bgCard,borderRadius:14,boxShadow:"0 10px 36px rgba(0,0,0,.6)",border:`1px solid ${P.border}`,zIndex:60,minWidth:180,overflow:"hidden"}}>{[["📧 Email",shareEmail],["💬 Text",shareText],["📄 PDF",sharePDF]].map(([label,fn])=><button key={label} onClick={fn} style={{width:"100%",background:"none",border:"none",borderBottom:`1px solid ${P.border}`,padding:"13px 18px",textAlign:"left",cursor:"pointer",fontFamily:"'Nunito',sans-serif",fontSize:14,color:P.text,fontWeight:600}}>{label}</button>)}</div>}</div>
         </div>
       </div>
+      {visibleSugs.length===0?<div style={{textAlign:"center",padding:"40px 0 24px"}}><div style={{fontSize:40,marginBottom:12}}>🎯</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:700,color:P.text,marginBottom:8}}>All dismissed</div><p style={{fontFamily:"'Nunito',sans-serif",fontSize:13,color:P.muted,marginBottom:20}}>You've hidden all suggestions. Refresh for a new batch or clear hidden to see them again.</p><div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}><button onClick={moodMode?generateMood:generate} style={{background:`linear-gradient(135deg,${P.accent},${P.accentDk})`,color:"#fff",border:"none",borderRadius:12,padding:"11px 22px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>↺ Get New Suggestions</button><button onClick={clearExcluded} style={{background:P.bgSurface,color:P.muted,border:`1px solid ${P.border}`,borderRadius:12,padding:"11px 22px",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>Show Hidden ({excluded.size})</button></div></div>:
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
-        {sugs.map((book,i)=><div key={book.id} style={{background:P.bgCard,borderRadius:16,overflow:"hidden",border:`1px solid ${P.border}`,boxShadow:"0 4px 20px rgba(0,0,0,.35)",transition:"border-color .15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}>
+        {visibleSugs.map((book,i)=><div key={book.id} style={{position:"relative",background:P.bgCard,borderRadius:16,overflow:"hidden",border:`1px solid ${P.border}`,boxShadow:"0 4px 20px rgba(0,0,0,.35)",transition:"border-color .15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=P.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=P.border}>
+          <button onClick={e=>{e.stopPropagation();excludeBook(book);}} aria-label="Not interested" title="Not interested" style={{position:"absolute",top:8,right:8,zIndex:2,background:P.bgSurface,border:`1px solid ${P.border}`,borderRadius:"50%",width:26,height:26,display:"flex",alignItems:"center",justifyContent:"center",color:P.muted,fontSize:13,cursor:"pointer",padding:0,opacity:.75,lineHeight:1}}>✕</button>
           <div style={{display:"flex",gap:14,padding:"15px 14px 13px"}}>
             <div style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"center",gap:7}}>
               <span style={{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:900,color:P.accent,lineHeight:1}}>{i+1}</span>
               <div style={{width:60,height:82,borderRadius:8,overflow:"hidden",background:P.bgSurface,display:"flex",alignItems:"center",justifyContent:"center"}}><CoverImg src={book.cover} isbn13={book.isbn13} isbn10={book.isbn10} candidates={book.coverCandidates||[]} alt={book.title} style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
             </div>
-            <div style={{flex:1,minWidth:0}}>
+            <div style={{flex:1,minWidth:0,paddingRight:28}}>
               <div style={{fontFamily:"'Playfair Display',serif",fontWeight:700,fontSize:15,color:P.text,lineHeight:1.3,marginBottom:3}}>{book.title}</div>
               <div style={{fontFamily:"'Nunito',sans-serif",fontSize:12.5,color:P.textLt,marginBottom:5}}>{book.authors?.[0]}{book.year?` · ${book.year}`:""}</div>
               {book.genre&&<Pill label={book.genre} color="rgba(99,102,241,.15)" tc={P.accentLt}/>}
@@ -2616,7 +2625,7 @@ function SuggestScreen({books,onAddWishlist}) {
             <button onClick={()=>setSel(book)} style={{background:"none",border:"none",color:P.accent,fontSize:24,cursor:"pointer",alignSelf:"flex-start",padding:"0 0 0 4px",flexShrink:0}}>›</button>
           </div>
         </div>)}
-      </div>
+      </div>}
 
     </div>}
     {sel&&<Sheet onClose={()=>setSel(null)} noPad><DetailModal book={sel} onClose={()=>setSel(null)} onUpdate={b=>{onAddWishlist(b);setSel(null);}} onDelete={()=>setSel(null)}/></Sheet>}
