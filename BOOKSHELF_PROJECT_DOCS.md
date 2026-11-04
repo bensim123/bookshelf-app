@@ -4,7 +4,7 @@
 **Current File:** `index.html` (self-contained PWA — React via CDN, no build step)
 **Project Type:** Mobile-first book tracker, deployed as a PWA installable on iPhone
 **Ultimate Goal:** Native iOS app via Capacitor
-**Service Worker:** bookshelf-v15
+**Service Worker:** bookshelf-v16
 
 -----
 
@@ -336,6 +336,12 @@ See earlier doc versions. Key features built: barcode/cover/search add, detail m
 - Added load timeout with Retry and a guard when the Firebase SDK fails to load
 - Verified by compiling the script and running it in jsdom with a stubbed Firebase (fresh + seeded data, all tabs, key modals): 0 errors
 
+**Session 14 (SW v16)**
+- Suggestions: the Claude API can't be called from a hosted page without a key (it only worked inside Claude.ai), so "Generate 25" always failed. Suggestions now come from Open Library (top authors + genres, rated sort, excludes anything already in the library/wishlist). Mood search maps keywords to subjects.
+- Optional: set `AI_PROXY_URL` in `index.html` to a server that holds the Claude key (e.g. a Cloudflare Worker) to get AI-written suggestions; failures fall back to Open Library.
+- Search: autocomplete dropdown (debounced, 3+ chars), native spellcheck/autocorrect enabled, fuzzy retry with a "close matches" notice when nothing matches.
+- Still needing AI/proxy: cover-photo recognition (CoverScanner).
+
 -----
 
 ## 9. Known Issues & Limitations
@@ -349,6 +355,7 @@ See earlier doc versions. Key features built: barcode/cover/search add, detail m
 |audiobook total time|UX|User must manually enter total minutes — not auto-fetched from OL|
 |Series detection accuracy|Minor|Works well for `(Series, #N)` titles; less reliable for unnumbered series|
 |Cross-device sync|Done (Firebase)|Requires Google sign-in. Offline edits rely on Firestore's connection; keep using 💾 backups.|
+|Cover photo scan|Needs proxy|Calls the Claude API directly; fails on hosted pages until `AI_PROXY_URL` is wired in (use barcode or search meanwhile)|
 |Service worker|Minor|Registered from a blob URL with scope `/`, which browsers may reject; offline caching is best-effort. A real `sw.js` file is the proper fix.|
 
 -----

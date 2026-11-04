@@ -77,7 +77,7 @@
 <script>
   if('serviceWorker' in navigator){
     const SW=`
-const CACHE='bookshelf-v15';
+const CACHE='bookshelf-v16';
 const SHELL=[
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
@@ -91,7 +91,7 @@ self.addEventListener('fetch',e=>{
   if(skip||e.request.method!=='GET')return;
   e.respondWith(caches.match(e.request).then(hit=>{if(hit)return hit;return fetch(e.request).then(res=>{if(res&&res.status===200&&res.type!=='opaque'){caches.open(CACHE).then(c=>c.put(e.request,res.clone()));}return res;}).catch(()=>{if(e.request.mode==='navigate')return caches.match('/index.html');});}));
 });`;
-    try{const blob=new Blob([SW],{type:'application/javascript'});const url=URL.createObjectURL(blob);navigator.serviceWorker.register(url,{scope:'/'}).then(()=>{console.log('SW v15 ok');URL.revokeObjectURL(url);}).catch(()=>{});}catch(e){}
+    try{const blob=new Blob([SW],{type:'application/javascript'});const url=URL.createObjectURL(blob);navigator.serviceWorker.register(url,{scope:'/'}).then(()=>{console.log('SW v16 ok');URL.revokeObjectURL(url);}).catch(()=>{});}catch(e){}
   }
   // Apply saved theme before React renders (prevents flash)
   try{
@@ -520,6 +520,52 @@ async function fetchSeriesTitles(book, existingBooks=[]) {
     return matched;
   } catch { return []; }
 }
+// Optional: URL of a small server (e.g. a Cloudflare Worker) that forwards to the Claude API and holds the key.
+// Leave empty to use the built-in Open Library suggestions (no key needed).
+const AI_PROXY_URL = "";
+async function callClaude(prompt, maxTokens) {
+  if (!AI_PROXY_URL) throw new Error("AI not configured");
+  const r = await fetch(AI_PROXY_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({model:"claude-sonnet-4-20250514", max_tokens:maxTokens, messages:[{role:"user",content:prompt}]})});
+  if (!r.ok) throw new Error("AI request failed");
+  const d = await r.json();
+  const text = d?.content?.[0]?.text;
+  if (!text) throw new Error("Empty AI response");
+  return JSON.parse(text.replace(/```json|```/g,"").trim());
+}
+const toSuggestion = (s, extra={}) => ({...s, id:crypto.randomUUID(), authors:s.authors||[s.author], cover:s.cover||(s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null), isbn13:s.isbn13||"", isbn10:s.isbn10||"", status:"suggestion", ...extra});
+const normT = t => (t||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+async function olRanked(q, lim) {
+  const r = await fetch(`${OL_SEARCH}?q=${encodeURIComponent(q)}&sort=rating&limit=${lim}&fields=${OL_FIELDS}&language=eng`);
+  if (!r.ok) return [];
+  return ((await r.json())?.docs||[]).map(parseDoc).filter(Boolean);
+}
+// Builds suggestions from Open Library using the reader's top authors and genres.
+async function olSuggest(books, want=25, seedSubjects=null) {
+  const known = new Set(books.map(b=>normT(b.title)));
+  const lib = books.filter(b=>["read","owned","reading"].includes(b.status));
+  const count = (arr)=>Object.entries(arr.reduce((m,x)=>{if(x){m[x]=(m[x]||0)+1;}return m;},{})).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+  const authors = count(lib.map(b=>b.authors?.[0]).filter(a=>a&&a!=="Unknown Author")).slice(0,4);
+  const genres = seedSubjects || count(lib.map(b=>b.genre).filter(Boolean)).slice(0,4);
+  const jobs = [
+    ...(seedSubjects?[]:authors.map(a=>({q:`author:"${a}"`, why:`More from ${a}, an author in your library`}))),
+    ...genres.map(g=>({q:`subject:"${g}"`, why:`Highly rated in ${g}`})),
+  ];
+  if (!jobs.length) ["Fantasy","Mystery","Science fiction","Biography"].forEach(g=>jobs.push({q:`subject:"${g}"`, why:`Highly rated in ${g}`}));
+  const results = await Promise.all(jobs.map(j=>olRanked(j.q, 14).then(r=>r.map(b=>({b,why:j.why}))).catch(()=>[])));
+  const out=[], seen=new Set();
+  for (let round=0; out.length<want && round<14; round++) {
+    for (const list of results) {
+      const it = list[round]; if(!it) continue;
+      const k = normT(it.b.title);
+      if (!k || known.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      out.push(toSuggestion(it.b, {reason:it.why, price:"$14.99"}));
+      if (out.length>=want) break;
+    }
+  }
+  if (!out.length) throw new Error("No suggestions found");
+  return out;
+}
 async function aiSuggest(books) {
   const ro=books.filter(b=>["read","owned","reading"].includes(b.status));
   const prompt=`You are a passionate librarian. Suggest exactly 25 books the reader will love.
@@ -529,21 +575,37 @@ Authors: ${[...new Set(ro.map(b=>b.authors?.[0]).filter(Boolean))].slice(0,12).j
 Rules: No repeats. Spread genres. Mix classics and recent. Add realistic US paperback price.
 Respond ONLY with JSON array, no markdown:
 [{"title":"","author":"","year":"","genre":"","description":"2-3 sentences","isbn13":"","price":"$14.99","reason":"one sentence why"}]`;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:5000,messages:[{role:"user",content:prompt}]})});
-  const d=await r.json();
-  const text=(d?.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim();
-  const wlSet=new Set(books.map(b=>b.title.toLowerCase()));
-  return JSON.parse(text).filter(s=>s.title&&!wlSet.has(s.title.toLowerCase())).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  if (AI_PROXY_URL) {
+    try {
+      const list = await callClaude(prompt, 5000);
+      const wlSet=new Set(books.map(b=>normT(b.title)));
+      const out = list.filter(s=>s.title&&!wlSet.has(normT(s.title))).map(s=>toSuggestion(s));
+      if (out.length) return out;
+    } catch {}
+  }
+  return olSuggest(books, 25);
 }
+const MOOD_SUBJECTS = [
+  [/short|quick/, ["Short stories","Humor"]], [/funny|humou?r|laugh|comic/, ["Humor","Comedy"]],
+  [/epic|long|saga/, ["Epic fantasy","Historical fiction"]], [/uplift|hope|feel.?good|heartwarm/, ["Inspirational","Friendship"]],
+  [/dark|twist|gritty|noir/, ["Psychological thriller","Noir"]], [/sci.?fi|mind|space|future|science/, ["Science fiction","Dystopias"]],
+  [/cozy|cosy|mystery|detective/, ["Cozy mystery","Detective and mystery stories"]], [/can.?t put|page.?turn|thrill|suspense/, ["Thriller","Suspense"]],
+  [/romance|love/, ["Romance","Love stories"]], [/fantasy|magic|dragon/, ["Fantasy","Magic"]], [/histor/, ["Historical fiction","History"]],
+  [/scary|horror|creepy/, ["Horror","Ghost stories"]], [/learn|non.?fiction|smart/, ["Popular science","Biography"]],
+];
 async function aiMoodSuggest(mood,books) {
   const ro=books.filter(b=>["read","owned"].includes(b.status)).map(b=>b.title).slice(0,20);
   const prompt=`Reader wants: "${mood}". They've enjoyed: ${ro.join(", ")||"various"}.
 Suggest 8 books matching this mood. Respond ONLY with JSON array:
 [{"title":"","author":"","year":"","genre":"","description":"1-2 sentences","isbn13":"","price":"$14.99","reason":"why it matches this mood"}]`;
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:2000,messages:[{role:"user",content:prompt}]})});
-  const d=await r.json();
-  const text=(d?.content?.[0]?.text||"[]").replace(/```json|```/g,"").trim();
-  return JSON.parse(text).map(s=>({...s,id:crypto.randomUUID(),authors:[s.author],cover:s.isbn13?`https://covers.openlibrary.org/b/isbn/${s.isbn13}-L.jpg`:null,isbn13:s.isbn13||"",isbn10:"",status:"suggestion"}));
+  if (AI_PROXY_URL) {
+    try { const list = await callClaude(prompt, 2000); const out=list.filter(s=>s.title).map(s=>toSuggestion(s)); if(out.length) return out; } catch {}
+  }
+  const m = mood.toLowerCase();
+  let subs = MOOD_SUBJECTS.filter(([re])=>re.test(m)).flatMap(([,s])=>s);
+  if (!subs.length) subs = [mood.trim()];
+  const out = await olSuggest(books, 10, [...new Set(subs)].slice(0,4));
+  return out.map(b=>({...b, reason:`Matches your mood: “${mood.trim()}”`}));
 }
 
 // ─── Native Share API ────────────────────────────────────────────────────────
@@ -898,10 +960,47 @@ function SearchPanel({onAdd}) {
   const [q,setQ]=useState("");const [res,setRes]=useState([]);const [busy,setBusy]=useState(false);const [err,setErr]=useState("");
   const [coverPickFor,setCoverPickFor]=useState(null);
   const [pendingBook,setPendingBook]=useState(null);
-  async function go(){const query=q.trim();if(!query)return;setBusy(true);setErr("");setRes([]);try{const books=/^\d{10,13}$/.test(query.replace(/-/g,""))?[await fetchByISBN(query.replace(/-/g,""))].filter(Boolean):await olSearch(query,12,null);setRes(books);if(!books.length)setErr("No books found — try a different title, author, or ISBN.");}catch{setErr("Search failed. Check your connection and try again.");}finally{setBusy(false);}}
+  const [ac,setAc]=useState([]);const [showAc,setShowAc]=useState(false);const [didYouMean,setDidYouMean]=useState("");
+  // Autocomplete: debounced title/author suggestions from Open Library
+  useEffect(()=>{
+    const t=q.trim();
+    if(t.length<3||/^\d[\d-]*$/.test(t)){setAc([]);return;}
+    let live=true;
+    const h=setTimeout(async()=>{
+      try{
+        const r=await fetch(`${OL_SEARCH}?q=${encodeURIComponent(t)}&limit=8&fields=title,author_name&language=eng`);
+        if(!r.ok||!live)return;
+        const docs=(await r.json())?.docs||[];
+        const seen=new Set(),out=[];
+        docs.forEach(d=>{const k=(d.title||"").toLowerCase();if(!d.title||seen.has(k))return;seen.add(k);out.push({title:d.title,author:d.author_name?.[0]||""});});
+        if(live)setAc(out.slice(0,6));
+      }catch{}
+    },300);
+    return()=>{live=false;clearTimeout(h);};
+  },[q]);
+  async function go(override){
+    const query=(typeof override==="string"?override:q).trim();if(!query)return;
+    setShowAc(false);setBusy(true);setErr("");setRes([]);setDidYouMean("");
+    try{
+      const isbn=query.replace(/-/g,"");
+      let books=/^\d{10,13}$/.test(isbn)?[await fetchByISBN(isbn)].filter(Boolean):await olSearch(query,12,null);
+      // Spelling help: if nothing matched, retry with fuzzy matching on each word
+      if(!books.length&&!/^\d{10,13}$/.test(isbn)){
+        const words=query.split(/\s+/).filter(w=>w.length>3);
+        if(words.length){
+          const fuzzy=query.split(/\s+/).map(w=>w.length>3?w.replace(/[^\w']/g,"")+"~":w).join(" ");
+          const alt=await olSearch(fuzzy,12,null).catch(()=>[]);
+          if(alt.length){books=alt;setDidYouMean(`No exact match for “${query}” — showing close matches.`);}
+        }
+      }
+      setRes(books);if(!books.length)setErr("No books found — try a different title, author, or ISBN.");
+    }catch{setErr("Search failed. Check your connection and try again.");}finally{setBusy(false);}
+  }
   if(coverPickFor) return <CoverPickerModal book={coverPickFor} onSelect={url=>{const updated={...coverPickFor,cover:url};if(pendingBook){onAdd(updated);}else{setRes(r=>r.map(b=>b.id===coverPickFor.id?{...b,cover:url}:b));} setCoverPickFor(null);setPendingBook(null);}} onClose={()=>{setCoverPickFor(null);setPendingBook(null);}}/>;
   return <div>
-    <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="off" autoCorrect="off" spellCheck="false" placeholder="Title, author, or ISBN…" autoFocus style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
+    <div style={{display:"flex",gap:8,marginBottom:14}}><input value={q} onChange={e=>{setQ(e.target.value);setShowAc(true);}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();go();}}} autoComplete="on" autoCorrect="on" autoCapitalize="words" spellCheck={true} enterKeyHint="search" onFocus={()=>setShowAc(true)} placeholder="Title, author, or ISBN…" autoFocus style={{flex:1,border:`1.5px solid ${P.border}`,borderRadius:12,padding:"12px 14px",fontFamily:"'Nunito',sans-serif",fontSize:15,background:P.bgSurface,color:P.text,outline:"none"}}/><button onClick={e=>{e.preventDefault();e.stopPropagation();go();}} disabled={busy} style={{background:busy?P.disabledBtn:P.accent,color:"#fff",border:"none",borderRadius:12,padding:"12px 20px",cursor:busy?"default":"pointer",fontFamily:"'Nunito',sans-serif",fontWeight:800,fontSize:15,minWidth:60}}>{busy?"…":"Go"}</button></div>
+    {showAc&&ac.length>0&&!busy&&res.length===0&&<div style={{background:P.bgCard,border:`1px solid ${P.border}`,borderRadius:12,marginTop:-6,marginBottom:12,overflow:"hidden"}}>{ac.map((a,i)=><div key={i} onClick={()=>{const v=a.title;setQ(v);go(v);}} style={{padding:"10px 14px",cursor:"pointer",borderBottom:i<ac.length-1?`1px solid ${P.border}`:"none",fontFamily:"'Nunito',sans-serif"}}><div style={{fontSize:14,fontWeight:700,color:P.text}}>{a.title}</div>{a.author&&<div style={{fontSize:12,color:P.muted}}>{a.author}</div>}</div>)}</div>}
+    {didYouMean&&<p style={{fontFamily:"'Nunito',sans-serif",color:P.textLt,fontSize:12,marginBottom:10}}>{didYouMean}</p>}
     {err&&<p style={{fontFamily:"'Nunito',sans-serif",color:"#c0392b",fontSize:13,marginBottom:12}}>{err}</p>}
     {busy&&<div style={{textAlign:"center",padding:"24px 0",color:P.muted,fontFamily:"'Nunito',sans-serif"}}>Searching…</div>}
     <div style={{display:"flex",flexDirection:"column",gap:10}}>{res.map(book=><div key={book.id} style={{display:"flex",gap:12,padding:"11px 12px",background:P.bgCard,borderRadius:12,border:`1px solid ${P.border}`,transition:"border-color .15s,background .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=P.bgSurface;e.currentTarget.style.borderColor=P.accent;}} onMouseLeave={e=>{e.currentTarget.style.background=P.bgCard;e.currentTarget.style.borderColor=P.border;}}>
